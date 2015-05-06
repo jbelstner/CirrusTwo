@@ -1,0 +1,15 @@
+#!/bin/sh 
+#
+# rc.local
+#
+# Put your custom commands here that should be executed once
+# the system init finished. By default this file does nothing.
+
+# Start the MeshCentral Agent
+/usr/local/mesh/mesh_linux start
+
+# Start the Encinitas Labs Smart Antenna application
+/opt/encinitaslabs/rfid/gpio_setup.sh
+/etc/init.d/rfid.sh start
+
+exit 0

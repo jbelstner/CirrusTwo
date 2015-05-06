@@ -1,0 +1,17 @@
+# interfaces(5) file used by ifup(8) and ifdown(8)
+auto lo
+iface lo inet loopback
+
+# Ethernet
+auto eth0
+allow-hotplug eth0
+iface eth0 inet dhcp
+
+# WiFi
+#auto wlan1
+#iface wlan1 inet dhcp
+#        wpa-ssid EL-Guest
+#        wpa-psk a452f010d650ce7af91f8a3def0fb575ec9e0bd64afc458be57d4c56f41b4d1b
+
+# USB Cellular Dongle
+#auto ppp0
