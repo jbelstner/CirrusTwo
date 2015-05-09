@@ -37,7 +37,7 @@ public class SelfTest {
 	private final int TOP_CPU_LENGTH = 4;
 	private final int TOP_MEM_START = 47;
 	private final int TOP_MEM_LENGTH = 4;
-	private final int TOP_MIN_LENGTH = 65;
+	private final int TOP_MIN_LENGTH = 60;
 	private final int MEM_INFO_START = 12;
 	private final int MEM_INFO_LENGTH = 12;
 

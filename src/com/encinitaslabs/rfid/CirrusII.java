@@ -32,36 +32,28 @@ import java.util.Date;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
-
-import org.eclipse.paho.client.mqttv3.MqttException;
-import org.json.simple.JSONArray;
-import org.json.simple.JSONObject;
-import org.json.simple.parser.JSONParser;
-import org.json.simple.parser.ParseException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.encinitaslabs.rfid.cmd.CmdAntennaPortConf;
 import com.encinitaslabs.rfid.cmd.CmdHead;
 import com.encinitaslabs.rfid.cmd.CmdReaderModuleFirmwareAccess;
 import com.encinitaslabs.rfid.cmd.CmdTagAccess;
-import com.encinitaslabs.rfid.cmd.CmdTagAccess.RFID_18K6CGetGuardBufferTagNum;
 import com.encinitaslabs.rfid.cmd.CmdTagProtocol;
 import com.encinitaslabs.rfid.cmd.Llcs;
 import com.encinitaslabs.rfid.cmd.MtiCmd;
-import com.encinitaslabs.rfid.comms.MyMeshClient;
-import com.encinitaslabs.rfid.comms.MyMqttClient;
 import com.encinitaslabs.rfid.comms.SerialComms;
 import com.encinitaslabs.rfid.utils.Crc16;
 
 /**
- * SmartAntenna Object
- * <P>This class is the main API the MTI RFID command set.
+ * CirrusII Object
+ * <P>This class is the main class.
  * It abstracts the details of MTI Low Level Command Set into a set of basic
  * commands for control and use of the RFID module.
  *  
  * @author Encinitas Laboratories, Inc.
  * @version 0.1
  */
-public class SmartAntenna {
+public class CirrusII {
 	
 	public enum RfidState {
 		Idle,
@@ -82,12 +74,9 @@ public class SmartAntenna {
 	
 	// RFID parameters
 	private InventoryProfile profile = null;
-	private PostMatchCriteria postMatch = null;
-	private ArrayList<SelectCriteria> select = null;
 	private ArrayList<AntennaPort> antennaPorts = null;
 	private String profileFilename = "Default.conf";
 	private Llcs llcs = null;
-	private Boolean usingGuardMode = false;
 	private Byte testModeCommandSelect = 0;
 	private Boolean testModeResponsePending = false;
 	private Integer numPhysicalPorts = 2;
@@ -99,36 +88,30 @@ public class SmartAntenna {
 	private LinkedBlockingQueue<byte[]> serialCmdQueue = null;
 	private LinkedBlockingQueue<byte[]> serialRspQueue = null;
 	private LinkedBlockingQueue<RfidState> nextRfidState = null;
-	// Gateway Command parameters
-	private LinkedBlockingQueue<String> commandQueue = null;
+	// Tag Data parameters
 	private ArrayList<TagData> tagList_ping = null;
 	private ArrayList<TagData> tagList_pong = null;
 	private ConcurrentHashMap<String, TagData> tagDatabase = null;
-	private String epc_encode_format = "item_number+sku";
 	private Boolean pingTagList = true;
 	private Boolean autoRepeat = false;
-	private Boolean filterDuplicates = false;
 	private Integer motionThreshold = 12; // 12 dB
 	private Integer ageThreshold = 86400; // 1 day
 	private final Integer motionThresholdLimit = 100; // 100 dB
 	private final Integer ageThresholdLimit = 259200; // 30 days
-	// MeshCentral Parameters
-	private MyMeshClient myMeshClient = null;
-	private Boolean useMeshAgent = false;
-	// MQTT parameters
-	private MyMqttClient myMqttClient = null;
-	private String broker_uri = null;
-	private String facility_id = null;
-	private String device_id = null;
-	private String pub_topic_data = null;
-	private String pub_topic_cmd_response = null;
-	private String pub_topic_status = null;
-	private String sub_topic = null;
-	private int command_Id = 0;
+	// Fotaflo parameters
+	private LinkedBlockingQueue<String> pictureQueue = null;
+    private AtomicBoolean imageCaptured = null;
+	private Fotaflo fotaflo = null;
+	private Camera camera = null;
+	private String username = null;
+	private String password = null;
+	private String photoUrl = null;
+	private String deviceId = null;
+	private String location = null;
 	// Local parameters
-	private static final String apiVersionString = "0.5.9b2";
+	private static final String apiVersionString = "C2-0.1.5";
 	private final String configFile = "application.conf";
-	private static SmartAntenna smartAntenna;
+	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
 	private Boolean testModeInventory = false;
 	private Boolean serialDebug = false;
@@ -145,8 +128,6 @@ public class SmartAntenna {
 	private final Integer ticTime_ms = 500;
 	private final Integer selfTestMask = 15;
 	private final Integer selfTestTime = 10;
-	private final Integer gatewayRetryCount_tics = 30;
-	private Integer gatewayRetryCounter = 0;
 	private final Integer readerResetCount_tics = 20;
 	private Integer readerResetCounter = 0;
 	private Double latitude = 0.0;
@@ -160,14 +141,14 @@ public class SmartAntenna {
 	public static void main( String[] args ) throws InterruptedException , IOException {
 
 		System.out.println( "Encinitas Laboratories, Inc.  Copyright 2014-2015" );
-		System.out.println( "RFID Smart Antenna version " + apiVersionString);
+		System.out.println( "Cirrus-II, version " + apiVersionString);
 			    
 		if ((args.length > 0) && (Boolean.valueOf(args[0]) == true)) {
 			System.out.println( "Command Line Interface Enabled\n\n");
-			smartAntenna = new SmartAntenna(true);	
+			cirrusII = new CirrusII(true);	
 		} else {
 			System.out.println( "Command Line Interface Disabled\n\n");
-			smartAntenna = new SmartAntenna(false);	
+			cirrusII = new CirrusII(false);	
 		}
 
         Runtime.getRuntime().addShutdownHook(new Thread()
@@ -175,7 +156,7 @@ public class SmartAntenna {
             @Override
             public void run()
             {
-            	smartAntenna.cleanup();
+            	cirrusII.cleanup();
             }
         });
 	}
@@ -185,7 +166,7 @@ public class SmartAntenna {
 	 * 
 	 * Class Constructor
 	 */
-	public SmartAntenna( boolean useCLI_ ) {
+	public CirrusII( boolean useCLI_ ) {
 		// Check if we are using command line input
 		useCLI = useCLI_;
 		bitData = new SelfTest();
@@ -199,32 +180,26 @@ public class SmartAntenna {
 			System.out.println("No config file found, using defaults\n" + e1.toString());
 		}
 		
-		// Create a few objects that we need to have
+		// Create the log object that we need to have
 		log = new Log(logFilename, logLevel, useCLI);
-		select = new ArrayList<SelectCriteria>();
-		postMatch = new PostMatchCriteria();
 		
 		// Initialize the various queues
 		tagList_ping = new ArrayList<TagData>();
 		tagList_pong = new ArrayList<TagData>();
 		tagDatabase = new ConcurrentHashMap<String, TagData>();
-		commandQueue = new LinkedBlockingQueue<String>();
+		pictureQueue = new LinkedBlockingQueue<String>();
 		serialCmdQueue = new LinkedBlockingQueue<byte[]>();
 		serialRspQueue = new LinkedBlockingQueue<byte[]>();
 		nextRfidState = new LinkedBlockingQueue<RfidState>();
-
-		// MQTT INITIALIZATION
-		if (broker_uri != null) {
-			try {
-				myMqttClient = new MyMqttClient(broker_uri, device_id);
-				myMqttClient.setLastWill(pub_topic_status);
-				myMqttClient.setLogObject(log);
-				myMqttClient.setInMessageQueue(commandQueue);
-				myMqttClient.connect();		
-			} catch (MqttException e) {
-				log.makeEntry("Unable to initialize MQTT Client\n" + e.toString(), Log.Level.Error);
-			}
-		}
+		
+		// Fotaflo specific objects
+		camera = new Camera(pictureQueue, log);
+//		fotaflo = new Fotaflo(deviceId, location);
+		fotaflo = new Fotaflo(null, null);
+		fotaflo.setLogObject(log);
+		fotaflo.setCredentials(username, password);
+		fotaflo.setUploadUrl(photoUrl);
+		imageCaptured = new AtomicBoolean(false);
 
 		// SERIAL PORT INITIALIZATION
 		serialComms = new SerialComms(serialRspQueue, serialDebug);
@@ -262,11 +237,6 @@ public class SmartAntenna {
 			log.makeEntry("Unable to load profile\n" + e.toString(), Log.Level.Error);
 		}
 
-		// LISTEN FOR INPUT FROM MESH CENTRAL
-		if (useMeshAgent) {
-			// TODO:
-		}
-
 		if (useCLI) {
 			// LISTEN FOR INPUT FROM THE COMMAND LINE
 			Thread cliWorker = new Thread () {
@@ -289,21 +259,21 @@ public class SmartAntenna {
 			cliWorker.start();
 		}
 
-		// MANAGE RECEIVED LOCAL OR REMOTE COMMANDS
-		Thread gwWorker = new Thread () {
+		// MANAGE THE PICTURE UPLOAD QUEUE
+		Thread imageWorker = new Thread () {
 			public void run() {
 				while ( true ) {
 					try {
-						// This method blocks until a GW command is available
-						String jsonMessage = commandQueue.take();
-						processGatewayMessage(jsonMessage);
+						// This method blocks until a file is available
+						String fileToUpload = pictureQueue.take();
+						associateFileWithTagsAndUpload(fileToUpload);
 					} catch (Exception e) {
 						log.makeEntry("Error processing Command or Event\n" + e.toString(), Log.Level.Error);
 					}
 				}
 			}
 		};
-		gwWorker.start();
+		imageWorker.start();
 
 		// MANAGE THE SERIAL PORT COMMAND QUEUE
 		Thread serialcmdWorker = new Thread () {
@@ -492,16 +462,6 @@ public class SmartAntenna {
 				sipVersionString = CmdReaderModuleFirmwareAccess.RFID_MacGetFirmwareVersion.getVersion(dataBuffer);
 	    		setRfidState(RfidState.Idle);
 				
-			} else if (response.name().contains("RFID_18K6CGetGuardBufferTagNum")) {
-				if (RFID_18K6CGetGuardBufferTagNum.getNumTags(dataBuffer) > 0) {
-					try {
-						sendGetTagInfo();
-					} catch (InterruptedException e) {
-						log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
-					}
-				}
-	    		setRfidState(RfidState.Idle);
-
 			} else if (response.name().contains("RFID_EngGetTemperature") && !testModeResponsePending) {
 				Short temperature = MtiCmd.getShort(dataBuffer, MtiCmd.RESP_DATA_INDEX + 1);
 				if (testModeCommandSelect.intValue() == 0) {
@@ -545,29 +505,14 @@ public class SmartAntenna {
 			}
 			
 		} else if (responseType.contains("End")) {
-			// Was the reader buffering tag info?
-			if (usingGuardMode) {
-				usingGuardMode = false;
-				// For Guard Mode Operation, request the number of tags in the buffer
+			// See if we need to continue to read tags
+			if (autoRepeat) {
 				try {
-					sendGetTagNum();
+					sendInventoryRequest();
 				} catch (InterruptedException e) {
 					log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
-				}
-			} else {
-				// See if we need to continue to read tags
-				if (autoRepeat) {
-					try {
-						sendInventoryRequest();
-					} catch (InterruptedException e) {
-						log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
-					}				
-				} else {
-					sendInventoryComplete();
-				}
+				}				
 			}
-			// Check for and send any inventory events (i.e. arrival, departure, in_motion)
-			sendInventoryEvents();
 			// Return to idle state
     		setRfidState(RfidState.Idle);
 
@@ -597,210 +542,10 @@ public class SmartAntenna {
 			tagList.add(tagData);
 			// Save the temperature data
 			bitData.setRfModuleTemp(tagData.temp);
-		}
-	}
-	
-	/** 
-	 * subscribeToTopics<P>
-	 * This method subscribes to commands from the RFID Gateway.
-	 */
-	private void subscribeToTopics() {
-		if ((myMqttClient != null) && (myMqttClient.isConnected())) {
-			// Subscribe to commands from the Gateway
-			try {
-				myMqttClient.subscribe(sub_topic);
-			} catch (MqttException e) {
-				log.makeEntry("Unable to subscribe from the MQTT broker\n" + e.toString(), Log.Level.Error);
+			// Maybe take a photo
+			if (imageCaptured.compareAndSet(false, true)) {
+				camera.captureImageAndDownload();
 			}
-		}
-	}
-	
-	/** 
-	 * publishToGateway<P>
-	 * This method published JSON records to the RFID Gateway.
-	 */
-	private void publishToGateway( String topic, String record ) {
-		if ((myMqttClient != null) && (myMqttClient.isConnected())) {
-			try {
-				myMqttClient.publish(topic, record);
-			} catch (MqttException e) {
-				log.makeEntry("Unable to publish to the MQTT broker\n" + e.toString(), Log.Level.Error);
-			}
-		} else if (useMeshAgent) {
-			// TODO:
-		}
-	}
-	
-	/** 
-	 * sendCommandJsonRecord<P>
-	 * This method sends a JSON RPC indication to the specified topic.
-	 */
-	private void sendCommandJsonRecord(String method, String params, String topic) {
-		// Create the JSON RPC indication record
-		StringBuilder jsonRecord = new StringBuilder("{\"jsonrpc\":\"2.0\",");
-		jsonRecord.append("\"method\":\"" + method + "\",");
-		jsonRecord.append("\"params\":" + params + ",");
-		// Add the id record and end bracket
-		jsonRecord.append("\"id\":" + "\"" + Integer.toString(command_Id++) + "\"}");
-
-		// Upload the JSON record to the RFID Gateway
-		log.makeEntry(jsonRecord.toString(), Log.Level.Debug);
-		publishToGateway(topic, jsonRecord.toString());
-	}
-	
-	/** 
-	 * sendResponseJsonRecord<P>
-	 * This method send the GW Response JSON message to the server.
-	 */
-	private void sendResponseJsonRecord(String result, String error, String id) {
-		// Create the JSON RPC response record
-		StringBuilder jsonRecord = new StringBuilder("{\"jsonrpc\":\"2.0\",");
-		if (error == null) {
-			// Add the result record
-			jsonRecord.append("\"result\":" + result + ",");
-		} else {
-			// Add the error record (null for now)
-			jsonRecord.append("\"error\":" + error + ",");
-		}
-		// Add the id record and end bracket
-		jsonRecord.append("\"id\":" + "\"" + id + "\"}");
-		// Upload the JSON record to the Gateway
-		log.makeEntry(jsonRecord.toString(), Log.Level.Debug);
-		publishToGateway(pub_topic_cmd_response, jsonRecord.toString());
-	}
-	
-	/** 
-	 * sendIndicationJsonRecord<P>
-	 * This method sends a JSON RPC indication to the specified topic.
-	 */
-	private void sendIndicationJsonRecord(String method, String params) {
-		// Check for valid data
-		if ((method != null) && (params != null)) {
-			// Create the JSON RPC indication record
-			StringBuilder jsonRecord = new StringBuilder("{\"jsonrpc\":\"2.0\",");
-			jsonRecord.append("\"method\":\"" + method + "\",");
-			jsonRecord.append("\"params\":" + params + "}");
-			
-			// Determine the topic based on the method
-			String topic = null;
-			if (method.equalsIgnoreCase("inventory_data")) {
-				topic = pub_topic_data;			
-			} else {
-				topic = pub_topic_status;						
-			}
-			// Upload the JSON record to the RFID Gateway
-			log.makeEntry(jsonRecord.toString(), Log.Level.Debug);
-			publishToGateway(topic, jsonRecord.toString());
-		}
-	}
-	
-	/** 
-	 * sendStatusUpdate<P>
-	 * This method sends the status update to the RFID Gateway.
-	 */
-	private void sendStatusUpdate( String status ) {
-		// Check for valid data
-		if (status != null) {
-			// Construct the JSON RPC indication
-			String method = "status_update";
-			Date date = new Date();
-			Long epoch_ms = date.getTime();
-			// Create the JSON RPC params record
-			StringBuilder params = new StringBuilder("{");
-			params.append("\"sent_on\":" + epoch_ms + ",");
-			params.append("\"device_id\":\"" + device_id + "\",");
-			params.append("\"latitude\":" + latitude.toString() + ",");
-			params.append("\"longitude\":" + longitude.toString() + ",");
-			params.append("\"status\":\"" + status + "\"}");
-			// Send the JSON RPC indication
-			sendIndicationJsonRecord(method, params.toString());
-		}
-	}
-	
-	/** 
-	 * sendInventoryComplete<P>
-	 * This method sends the status update to the RFID Gateway.
-	 */
-	private void sendInventoryComplete( ) {
-		// Construct the JSON RPC indication
-		String method = "inventory_complete";
-		Date date = new Date();
-		Long epoch_ms = date.getTime();
-		// Create the JSON RPC params record
-		StringBuilder params = new StringBuilder("{");
-		params.append("\"sent_on\":" + epoch_ms + ",");
-		params.append("\"device_id\":\"" + device_id + "\"}");
-		// Send the JSON RPC indication
-		sendIndicationJsonRecord(method, params.toString());
-	}
-	
-	/** 
-	 * sendInventoryEvents<P>
-	 * This method builds and conditionally sends an inventory event to the RFID Gateway.
-	 */
-	private void sendInventoryEvents( ) {
-		// Construct the JSON RPC indication
-		int arrival = 0, departure = 0, in_motion = 0;
-		String method = "inventory_event";
-		boolean tagDataChanged = false;
-		long timestamp = new Date().getTime();
-		StringBuilder jsonRecord = new StringBuilder("{");
-		jsonRecord.append("\"sent_on\":" + timestamp + ",");
-		jsonRecord.append("\"device_id\":\"" + device_id + "\",");
-		jsonRecord.append("\"facility_id\":\"" + facility_id + "\",");
-		jsonRecord.append("\"data\":[");		
-		// Iterate through the entire ConcurrentHashMap
-		Set<String> epcs = tagDatabase.keySet();
-		for (String epc: epcs) {
-			TagData tagData = tagDatabase.get(epc);
-			if (tagData.newTag) {
-				tagData.newTag = false;
-				tagDataChanged = true;
-				jsonRecord.append("{\"epc_code\":\"" + tagData.epc + "\",");
-				jsonRecord.append("\"epc_encode_format\":\"" + epc_encode_format + "\",");
-				jsonRecord.append("\"event_type\":\"arrival\",");
-				jsonRecord.append("\"event_date\":" + tagData.timeStamp + ",");
-				jsonRecord.append("\"location\":{ }");
-				jsonRecord.append("},");
-				arrival++;
-			}
-			if (timestamp - tagData.timeStamp > (ageThreshold * 1000)) {
-				jsonRecord.append("{\"epc_code\":\"" + tagData.epc + "\",");
-				jsonRecord.append("\"epc_encode_format\":\"" + epc_encode_format + "\",");
-				jsonRecord.append("\"event_type\":\"departure\",");
-				jsonRecord.append("\"event_date\":" + tagData.timeStamp + ",");
-				jsonRecord.append("\"location\":{ }");
-				jsonRecord.append("},");
-				tagDatabase.remove(tagData.epc);
-				departure++;
-			}
-			if (tagData.motionState.compareTo(TagData.MotionState.InMotion) == 0) {
-				tagData.motionState = TagData.MotionState.Idle;
-				tagDataChanged = true;
-				jsonRecord.append("{\"epc_code\":\"" + tagData.epc + "\",");
-				jsonRecord.append("\"epc_encode_format\":\"" + epc_encode_format + "\",");
-				jsonRecord.append("\"event_type\":\"in_motion\",");
-				jsonRecord.append("\"event_date\":" + tagData.timeStamp + ",");
-				jsonRecord.append("\"location\":{ }");
-				jsonRecord.append("},");
-				in_motion++;
-			}
-			if (tagDataChanged) {
-				tagDataChanged = false;
-				tagDatabase.replace(epc, tagData);
-			}
-		}
-		if (jsonRecord.charAt(jsonRecord.length() - 1) == ',') {
-			jsonRecord.deleteCharAt(jsonRecord.length() - 1);
-		}
-		jsonRecord.append("]}");
-		
-		log.makeEntry("Arrivals   = " + arrival, Log.Level.Information);
-		log.makeEntry("Departures = " + departure, Log.Level.Information);
-		log.makeEntry("In Motions = " + in_motion, Log.Level.Information);
-		// Conditionally send the JSON RPC indication
-		if ((arrival > 0) || (departure > 0) || (in_motion > 0)) {
-			sendIndicationJsonRecord(method, jsonRecord.toString());			
 		}
 	}
 	
@@ -811,13 +556,7 @@ public class SmartAntenna {
 	 */
 	private String buildTagListJsonObject( ArrayList<TagData> tagList ) {
 		// Create an Inventory Data JSON RPC indication record
-		int records = 0;
 		Integer tagCount = tagList.size();
-		Long timestamp = new Date().getTime();
-		StringBuilder jsonRecord = new StringBuilder("{");
-		jsonRecord.append("\"sent_on\":" + timestamp + ",");
-		jsonRecord.append("\"facility_id\":\"" + facility_id + "\",");
-		jsonRecord.append("\"data\":[");		
 		// Iterate through the entire ArrayList of tags
 		TagData tagData = null, oldData = null;
 		for (int i = 0; i < tagCount; i++) {
@@ -831,77 +570,39 @@ public class SmartAntenna {
 					oldData.update(tagData, motionThreshold);
 					tagDatabase.put(tagData.epc, oldData);
 				}
-				// Create a JSON record for this tag only if we need to
-				if (!filterDuplicates || (oldData == null)) {
-					jsonRecord.append("{\"epc_code\":\"" + tagData.epc + "\",");
-					jsonRecord.append("\"epc_encode_format\":\"" + epc_encode_format + "\",");
-					jsonRecord.append("\"sku\":\"\",");
-					jsonRecord.append("\"device_id\":\"" + device_id + "\",");
-					jsonRecord.append("\"antenna_id\":" + tagData.antPort + ",");
-					jsonRecord.append("\"last_read_on\":" + tagData.timeStamp + ",");
-					jsonRecord.append("\"values\":[");
-					// Start of values array
-					jsonRecord.append("{\"rssi\":" + (tagData.rssi/10) + ",");
-					jsonRecord.append("\"phase\":" + tagData.phase + ",");
-					jsonRecord.append("\"channel\":" + (tagData.freqKHz/1000) + ",");
-					jsonRecord.append("\"read_on\":" + tagData.timeStamp + "}");
-					jsonRecord.append("]}");
-					jsonRecord.append(",");
-					records++;
-				}
 			}
 		}
-		if (jsonRecord.charAt(jsonRecord.length() - 1) == ',') {
-			jsonRecord.deleteCharAt(jsonRecord.length() - 1);			
-		}
-		jsonRecord.append("]}");
 
 		log.makeEntry("Reads = " + tagCount, Log.Level.Information);
-		if (records > 0) {
-			return jsonRecord.toString();			
-		} else {
-			return null;
-		}
+		return null;
 	}
 
 	/** 
-	 * buildTagDatabaseJsonObject<P>
-	 * This method builds the get_tag_database JSON RPC response object.
+	 * associateFileWithTagsAndUpload<P>
+	 * This method associates all the currently read tags with this
+	 * image file and uploads the record to the Fotaflo database.
 	 */
-	private String buildTagDatabaseJsonObject( ) {
-		// Create an Inventory Data JSON RPC indication record
+	private void associateFileWithTagsAndUpload( String fileToUpload ) {
+		// Create an tags record
 		Integer tagCount = tagDatabase.size();
-		Long epoch_ms = new Date().getTime();
-		StringBuilder jsonRecord = new StringBuilder("{");
-		jsonRecord.append("\"sent_on\":" + epoch_ms.toString() + ",");
-		jsonRecord.append("\"facility_id\":\"" + facility_id + "\",");
-		jsonRecord.append("\"data\":[");		
-		// Iterate through the entire ConcurrentHashMap
+		log.makeEntry("Tags = " + tagCount, Log.Level.Information);
+		StringBuilder tags = new StringBuilder("");
 		Set<String> epcs = tagDatabase.keySet();
 		for (String epc: epcs) {
 			TagData tagData = tagDatabase.get(epc);
-			jsonRecord.append("{\"epc_code\":\"" + tagData.epc + "\",");
-			jsonRecord.append("\"epc_encode_format\":\"" + epc_encode_format + "\",");
-			jsonRecord.append("\"sku\":\"\",");
-			jsonRecord.append("\"device_id\":\"" + device_id + "\",");
-			jsonRecord.append("\"antenna_id\":" + tagData.antPort + ",");
-			jsonRecord.append("\"last_read_on\":" + tagData.timeStamp + ",");
-			jsonRecord.append("\"values\":[");
-			// Start of values array
-			jsonRecord.append("{\"rssi\":" + (tagData.rssi/10) + ",");
-			jsonRecord.append("\"phase\":" + 0 + ",");
-			jsonRecord.append("\"channel\":" + 0 + ",");
-			jsonRecord.append("\"read_on\":" + tagData.timeStamp + "}");
-			jsonRecord.append("]}");
-			jsonRecord.append(",");
+			tags.append(tagData.epc.substring(17) + ",");
 		}
-		if (jsonRecord.charAt(jsonRecord.length() - 1) == ',') {
-			jsonRecord.deleteCharAt(jsonRecord.length() - 1);			
+		if (tags.charAt(tags.length() - 1) == ',') {
+			tags.deleteCharAt(tags.length() - 1);			
 		}
-		jsonRecord.append("]}");
-
-		log.makeEntry("Tags = " + tagCount, Log.Level.Information);
-		return jsonRecord.toString();
+		try {
+			fotaflo.postImageToServer(fileToUpload, tags.toString());
+		} catch (Exception e) {
+			log.makeEntry("Unable to upload image/tags\n" + e.toString(), Log.Level.Error);
+		}
+		tagDatabase.clear();
+		// Ready to take a new picture
+		imageCaptured.set(false);
 	}
 
 	/** 
@@ -1184,12 +885,16 @@ public class SmartAntenna {
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values are in decimal format only." );
 		System.out.println( "\n" );
+		System.out.println( "start" );
+		System.out.println( "stop" );
+		System.out.println( "beacon_on" );
+		System.out.println( "beacon_off" );
+		System.out.println( "capture_image" );
 		System.out.println( "show_database" );
 		System.out.println( "flush_database" );
 		System.out.println( "show_version" );
 		System.out.println( "show_config" );
 		System.out.println( "run_bit" );
-		System.out.println( "beacon" );
 		System.out.println( "reset" );
 		System.out.println( "help" );
 		System.out.println( "quit" );
@@ -1251,6 +956,29 @@ public class SmartAntenna {
 		} else if (method.equalsIgnoreCase("macros")) {
 			showMacroCommands();
 
+		} else if (method.equalsIgnoreCase("start")) {
+			try {
+				autoRepeat = true;
+				sendInventoryRequest();
+			} catch (InterruptedException e) {
+				log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+			}				
+		} else if (method.equalsIgnoreCase("stop")) {
+			try {
+				autoRepeat = false;
+				sendInventoryCancel();
+			} catch (InterruptedException e) {
+				log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+			}				
+		} else if (method.equalsIgnoreCase("beacon_on")) {
+			led.beacon("Enable");
+		} else if (method.equalsIgnoreCase("beacon_off")) {
+			led.beacon("Disable");
+		} else if (method.equalsIgnoreCase("capture_image")) {
+			TagData tagData = new TagData();
+			tagData.epc = "1000000000000000000001FF";
+			tagDatabase.put(tagData.epc, tagData);
+			camera.captureImageAndDownload();
 		} else if (method.equalsIgnoreCase("show_database")) {
 			printTagDatabase();
 		} else if (method.equalsIgnoreCase("flush_database")) {
@@ -1266,13 +994,22 @@ public class SmartAntenna {
 			profile.getProfile(false);
 		} else if (method.equalsIgnoreCase("run_bit")) {
 			bitData.sendBitResponseToCli();
-
 		} else if (	method.equalsIgnoreCase("reset") ) {
-    		// Create a JSON RPC command that only has a method
-    		StringBuilder jsonRecord = new StringBuilder("{\"jsonrpc\":\"2.0\",");
-			jsonRecord.append("\"method\":\"" + method + "\",");
-    		jsonRecord.append("\"id\":\"CLI\"}");
-			commandQueue.put(jsonRecord.toString());
+			testModeInventory = false;
+			try {
+				// Close and reopen the serial port
+				if ((serialComms != null) && serialComms.isConnected()) {
+					serialComms.disconnect();
+					serialComms = new SerialComms(serialRspQueue, serialDebug);
+					serialComms.setLogObject(log);
+					serialComms.connect(rfidCommPort, rfidBaudRate);
+				}
+				sendSoftReset();
+			} catch (InterruptedException e) {
+				log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
+			} catch (Exception e) {
+				log.makeEntry("Unable to re-open " + rfidCommPort + "\n" + e.toString(), Log.Level.Error);
+			}
 			
 		} else {
 			// Individual LLCS commands are handled here
@@ -1287,354 +1024,29 @@ public class SmartAntenna {
 	}
 
 	/** 
-	 * processGatewayMessage<P>
-	 * This method processes the Gateway command.
-	 */
-	private void processGatewayMessage( String jsonMessage ) {
-		// Parse the JSON
-		String method = null, id = null;
-		try {
-			JSONParser parser = new JSONParser();
-			Object obj = parser.parse(jsonMessage);
-			JSONObject jsonObject = (JSONObject) obj;
-			// Check if this is a command
-			method = (String) jsonObject.get("method");
-			// Check if this is a response
-			if (method == null) {
-				method = (String) jsonObject.get("result");
-				if (method != null) {
-					processGatewayResponse(jsonObject);
-					return;
-				}
-			}
-			id = (String) jsonObject.get("id");
-			// Check if this is an indication
-			if (id == null) {
-				processGatewayIndication(jsonObject);
-				return;
-			}
-
-			// Continue processing based on the method
-			if (method.equalsIgnoreCase("get_state")) {
-				log.makeEntry("Received get_state command!", Log.Level.Debug);
-
-			} else if (method.equalsIgnoreCase("set_neighbor_reports")) {
-				log.makeEntry("Received set_neighbor_reports command!", Log.Level.Debug);
-
-			} else if (method.equalsIgnoreCase("set_rf_config")) {
-				log.makeEntry("Received set_rf_config command!", Log.Level.Debug);
-				try {
-					if (setRfConfig(jsonObject)) {
-						sendResponseJsonRecord("\"true\"", null, id);						
-					} else {
-						String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-						sendResponseJsonRecord(null, error, id);
-					}
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to set RF configuration\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-
-			} else if (method.equalsIgnoreCase("set_antenna_config")) {
-				log.makeEntry("Received set_antenna_config command!", Log.Level.Debug);
-				try {
-					if (setAntennaConfig(jsonObject)) {
-						sendResponseJsonRecord("\"true\"", null, id);
-					} else {
-						String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-						sendResponseJsonRecord(null, error, id);
-					}
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to set Antenna configuration\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-
-			} else if (method.equalsIgnoreCase("set_select")) {
-				log.makeEntry("Received set_select command!", Log.Level.Debug);
-				try {
-					if (setSelect(jsonObject)) {
-						sendResponseJsonRecord("\"true\"", null, id);
-					} else {
-						String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-						sendResponseJsonRecord(null, error, id);
-					}
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to set Select criteria\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-
-			} else if (method.equalsIgnoreCase("set_post_match")) {
-				log.makeEntry("Received set_post_match command!", Log.Level.Debug);
-				try {
-					if (setPostMatch(jsonObject)) {
-						sendResponseJsonRecord("\"true\"", null, id);
-					} else {
-						String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-						sendResponseJsonRecord(null, error, id);
-					}
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to set Post Match criteria\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-
-			} else if (method.equalsIgnoreCase("set_tag_group")) {
-				log.makeEntry("Received set_tag_group command!", Log.Level.Debug);
-				try {
-					if (setTagQuery(jsonObject)) {
-						sendResponseJsonRecord("\"true\"", null, id);
-					} else {
-						String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-						sendResponseJsonRecord(null, error, id);
-					}
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to set Tag Group criteria\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-
-			} else if (method.equalsIgnoreCase("set_q_algorithm")) {
-				log.makeEntry("Received set_q_algorithm command!", Log.Level.Debug);
-				try {
-					if (setQAlgorithm(jsonObject)) {
-						sendResponseJsonRecord("\"true\"", null, id);
-					} else {
-						String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-						sendResponseJsonRecord(null, error, id);
-					}
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to set Q Algorithm\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-
-			} else if (method.equalsIgnoreCase("filtered_inventory")) {
-				log.makeEntry("Received filtered_inventory command!", Log.Level.Debug);
-				try {
-					if (filteredInventory(jsonObject)) {
-						sendResponseJsonRecord("\"true\"", null, id);
-					} else {
-						String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-						sendResponseJsonRecord(null, error, id);
-					}
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-
-			} else if (method.equalsIgnoreCase("inventory_start")) {
-				log.makeEntry("Received inventory_start command!", Log.Level.Debug);
-				try {
-					if (inventoryStart(jsonObject)) {
-						sendResponseJsonRecord("\"true\"", null, id);
-					} else {
-						String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-						sendResponseJsonRecord(null, error, id);
-					}
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-				
-			} else if (method.equalsIgnoreCase("inventory_stop")) {
-				log.makeEntry("Received inventory_stop command!", Log.Level.Debug);
-				autoRepeat = false;
-				try {
-					sendInventoryCancel();
-					sendResponseJsonRecord("\"true\"", null, id);
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-
-			} else if (method.equalsIgnoreCase("get_tag_database")) {
-				log.makeEntry("Received get_tag_database command!", Log.Level.Debug);
-				sendResponseJsonRecord(buildTagDatabaseJsonObject(), null, id);
-				JSONObject params = (JSONObject) jsonObject.get("params");
-				if (params != null) {
-					String flushDatabase = (String) params.get("flush_database");
-					if ((flushDatabase != null) && (flushDatabase.equalsIgnoreCase("Yes"))) {
-						tagDatabase.clear();
-					}
-				}
-
-			} else if ( (method.equalsIgnoreCase("get_bit_results")) ||
-						(method.equalsIgnoreCase("uart_comm_health")) ||
-						(method.equalsIgnoreCase("ping")) ||
-						(method.equalsIgnoreCase("get_temp")) ||
-						(method.equalsIgnoreCase("get_cpu_stats")) ) {
-				// Process the get_bit_results Gateway command 
-				log.makeEntry("Received get_bit_results command!", Log.Level.Debug);
-				String result = bitData.getBitResponseJsonObject();
-				sendResponseJsonRecord(result, null, id);
-
-			} else if (method.equalsIgnoreCase("set_bit_thresholds")) {
-				if (bitData.setBitAlarmThresholds(jsonObject) == true) {
-					sendResponseJsonRecord("\"true\"", null, id);					
-				} else {
-					String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-
-			} else if (method.equalsIgnoreCase("set_event_thresholds")) {
-				if (setEventThresholds(jsonObject) == true) {
-					sendResponseJsonRecord("\"true\"", null, id);					
-				} else {
-					String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-
-			} else if (method.equalsIgnoreCase("get_sw_version")) {
-				log.makeEntry("Received get_sw_version command!", Log.Level.Debug);
-				StringBuilder result = new StringBuilder("{\"apiVersion\":\"" + apiVersionString + "\",");
-				result.append("\"sipVersion\":\"" + sipVersionString + "\"}");
-				sendResponseJsonRecord(result.toString(), null, id);
-				
-			} else if (method.equalsIgnoreCase("get_reader_config")) {
-				log.makeEntry("Received get_reader_config command!", Log.Level.Debug);
-				String result = profile.getProfile(true);
-				sendResponseJsonRecord(result, null, id);
-
-			} else if (method.equalsIgnoreCase("load_defaults")) {
-				log.makeEntry("Received load_defaults command!", Log.Level.Debug);
-				profile = new InventoryProfile(profileFilename);
-				AntennaPort defaultPort = new AntennaPort(numPhysicalPorts);
-				defaultPort.setPowerLevel(profile.getDefaultPowerLevel());
-				defaultPort.setDwellTime(profile.getDefaultDwellTime());
-				defaultPort.setInvCycles(profile.getDefaultInvCycles());
-				// Initialize the antennaPorts array
-				for (int i = 0; i < profile.getNumVirtualPorts(); i++) {
-					antennaPorts.add(defaultPort);
-				}
-				// Now load the new settings
-				try {
-					initializeRfidModuleSettings();
-					sendResponseJsonRecord("\"true\"", null, id);					
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-				
-			} else if (method.equalsIgnoreCase("reset")) {
-				log.makeEntry("Received reset command!", Log.Level.Debug);
-				testModeInventory = false;
-				try {
-					// Close and reopen the serial port
-					if ((serialComms != null) && serialComms.isConnected()) {
-						serialComms.disconnect();
-						serialComms = new SerialComms(serialRspQueue, serialDebug);
-						serialComms.setLogObject(log);
-						serialComms.connect(rfidCommPort, rfidBaudRate);
-					}
-					sendSoftReset();
-					sendResponseJsonRecord("\"true\"", null, id);
-					sendStatusUpdate("in_reset");
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				} catch (Exception e) {
-					log.makeEntry("Unable to re-open " + rfidCommPort + "\n" + e.toString(), Log.Level.Error);
-				}
-				
-			} else if (method.equalsIgnoreCase("reboot")) {
-				log.makeEntry("Received reboot command!", Log.Level.Debug);
-				try {
-					sendSoftReset();
-					sendResponseJsonRecord("\"true\"", null, id);
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
-					String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-					sendResponseJsonRecord(null, error, id);
-				}
-				cleanup();
-				Runtime.getRuntime().exec("reboot");
-				
-			} else if (method.equalsIgnoreCase("beacon")) {
-				log.makeEntry("Received beacon command!", Log.Level.Debug);
-				// Make sure we have parameters
-				String params = (String)jsonObject.get("params");
-				if (params == null) {
-					String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-					sendResponseJsonRecord(null, error, id);
-				} else {
-					led.beacon(params);
-					sendResponseJsonRecord("\"true\"", null, id);										
-				}
-
-			} else if (method.equalsIgnoreCase("set_log_level")) {
-				log.makeEntry("Received set_log_level command!", Log.Level.Debug);
-				// Make sure we have parameters
-				String params = (String)jsonObject.get("params");
-				if (params == null) {
-					String error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
-					sendResponseJsonRecord(null, error, id);
-				} else {
-					log.setLevel(Log.Level.valueOf(params));
-					sendResponseJsonRecord("\"true\"", null, id);										
-				}
-
-			} else if (method.equalsIgnoreCase("subscribe_to_topics")) {
-				// Process the subscribe_to_topics command 
-				log.makeEntry("Received subscribe_to_topics command!", Log.Level.Debug);
-				subscribeToTopics();
-				sendStatusUpdate("ready");
-							
-			} else {
-				log.makeEntry("Invalid method: " + method, Log.Level.Warning);
-				String error = "{\"code\": -32601, \"message\": \"Method not found\"}";
-				sendResponseJsonRecord(null, error, id);
-			}
-		} catch (ParseException e) {
-			log.makeEntry("Unable to parse the JSON Command\n" + e.toString(), Log.Level.Warning);
-			String error = "{\"code\": -32700, \"message\": \"Parse error\"}";
-			sendResponseJsonRecord(null, error, "\"null\"");
-		} catch (IOException e) {
-			log.makeEntry("Unable to execute Gateway Command\n" + e.toString(), Log.Level.Error);
-			String error = "{\"code\": -32603, \"message\": \"Internal error\"}";
-			sendResponseJsonRecord(null, error, id);
-		}
-	}
-
-	/** 
-	 * processGatewayResponse<P>
-	 * This method processes the Gateway response.
-	 */
-	private void processGatewayResponse( JSONObject response ) {
-		
-	}
-	
-	/** 
-	 * processGatewayIndication<P>
-	 * This method processes the Gateway response.
-	 */
-	private void processGatewayIndication( JSONObject indication ) {
-		
-	}
-	
-	/** 
 	 * processTicTimer<P>
 	 * This method does tic timer things.
 	 */
 	private void processTicTimer() {
+		// Autonomous power on things for Fotaflo
+		if ((ticTimerCount == 0) && (useCLI == false)) {
+			try {
+				autoRepeat = true;
+				sendInventoryRequest();
+			} catch (InterruptedException e) {
+				log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+			}				
+		}
 		ticTimerCount++;
 		// Check for motion under the Smart Antenna
 		if (sensors.checkForMotion()) {
-			sendIndicationJsonRecord("sensor_event", sensors.getSensorIndicationJsonParams(facility_id, device_id ));
+			// Maybe do something here later
 		}
 		// Perform self-tests at a slower periodic rate
 		if ((ticTimerCount & selfTestMask) == selfTestTime) {
 			sensors.resetMotionDetector();  
 			if (bitData.performSelfTests() == true) {
 				led.error(true);
-				sendIndicationJsonRecord("bit_alarm", bitData.getBitAlarmJsonObject(device_id));
 			} else {
 				led.error(false);
 			}
@@ -1662,30 +1074,20 @@ public class SmartAntenna {
 						serialComms.connect(rfidCommPort, rfidBaudRate);
 					}
 					sendSoftReset();
-					sendStatusUpdate("in_reset");
+					log.makeEntry("Resetting due to comms error!", Log.Level.Warning);
 				} catch (Exception e) {
 					log.makeEntry("Unable Auto Reset RFID Serial\n" + e.toString(), Log.Level.Error);
 				}
 			}
 		}
 		
-		// See if we need to attempt to reconnect to the myMqttClient
-		if ((myMqttClient != null) && !myMqttClient.isConnected() && (++gatewayRetryCounter >= gatewayRetryCount_tics)) {
-			try {
-				myMqttClient.connect();
-			} catch (MqttException e) {
-				log.makeEntry("Unable to connect to the MQTT broker\n" + e.toString(), Log.Level.Warning);
-			}
-			gatewayRetryCounter = 0;
-		}
-
 		// See if we are waiting for the reader module to finish resetting
 		if ((rfidState == RfidState.WaitingForReset) && (++readerResetCounter >= readerResetCount_tics)) {
 			readerResetCounter = 0;
 			setRfidState(RfidState.Idle);
 			try {
 				initializeRfidModuleSettings();
-				sendStatusUpdate("ready");
+				log.makeEntry("Autonomous reset complete", Log.Level.Information);
 			} catch (InterruptedException e) {
 				log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
 			}
@@ -1700,8 +1102,7 @@ public class SmartAntenna {
 					if (testModeInventory) {
 						printTagListData(tagList_ping);
 					} else {
-						String params = buildTagListJsonObject(tagList_ping);
-						sendIndicationJsonRecord("inventory_data", params);
+						buildTagListJsonObject(tagList_ping);
 					}
 					tagList_ping.clear();
 				} else {
@@ -1716,8 +1117,7 @@ public class SmartAntenna {
 					if (testModeInventory) {
 						printTagListData(tagList_pong);
 					} else {
-						String params = buildTagListJsonObject(tagList_pong);
-						sendIndicationJsonRecord("inventory_data", params);
+						buildTagListJsonObject(tagList_pong);
 					}
 					tagList_pong.clear();
 				} else {
@@ -1725,463 +1125,6 @@ public class SmartAntenna {
 				}
 			}
 		}
-	}
-	
-	/** 
-	 * setEventThresholds<P>
-	 * This method processes the "set_event_thresholds" gateway command.
-	 * @return True means means successful update to the RFID module.
-	 */
-	private Boolean setEventThresholds( JSONObject command ) {
-		// Make sure we have a command
-		if (command == null) { return false; }
-
-		// Make sure we have parameters
-		JSONObject params = (JSONObject) command.get("params");
-		if (params == null) { return false; }
-
-		// Extract the motion threshold and range check
-		Number motion = (Number) params.get("motion_threshold");
-		if (motion == null) { return false; }
-		if ((motion.intValue() < 0) || (motion.intValue() > motionThresholdLimit)) { return false; }
-
-		// Extract the age threshold and range check
-		Number age = (Number) params.get("age_threshold");
-		if (age == null) { return false; }
-		if ((age.intValue() < 0) || (age.intValue() > ageThresholdLimit)) { return false; }
-
-		// Assign the values
-		motionThreshold = motion.intValue();
-		ageThreshold = age.intValue();
-		return true;
-	}
-	
-	/** 
-	 * setRfConfig<P>
-	 * This method processes the "set_rf_config" gateway command.
-	 * @return True means means successful update to the RFID module.
-	 * @throws InterruptedException 
-	 */
-	private Boolean setRfConfig( JSONObject command ) throws InterruptedException {
-		// Make sure we have a command
-		if (command == null) { return false; }
-
-		// Make sure we have parameters
-		JSONObject params = (JSONObject) command.get("params");
-		if (params == null) { return false; }
-
-		// Extract the values and save them to the profile object
-		profile.setLinkProfile((Number)params.get("link_profile"));
-
-		// Send the new link profile info to the embedded module
-		byte[] cmd = llcs.setCurrentLinkProfile(profile.getLinkProfile().byteValue());
-		if (cmd != null) { serialCmdQueue.put(cmd); } else { return false; }
-		
-		return true;
-	}
-	
-	/** 
-	 * setAntennaConfig<P>
-	 * This method processes the "set_antenna_config" gateway command.
-	 * @return True means means successful update to the RFID module.
-	 * @throws InterruptedException 
-	 */
-	private Boolean setAntennaConfig( JSONObject command ) throws InterruptedException {
-		// Make sure we have a command
-		if (command == null) { return false; }
-
-		// Make sure we have parameters
-		JSONArray params = (JSONArray) command.get("params");
-		if (params == null) { return false; }
-
-		// Set the total number of virtual ports being configured
-		profile.setNumVirtualPorts(params.size());
-
-		// Extract the values from the array
-		for (Integer i = 0; i < params.size(); i++) {
-			JSONObject info = (JSONObject) params.get(i.intValue());
-			AntennaPort port = new AntennaPort(numPhysicalPorts);
-			port.setPortState((String)info.get("port_state"));
-			port.setPowerLevel((Number)info.get("power_level"));
-			port.setDwellTime((Number)info.get("dwell_time"));
-			port.setInvCycles((Number)info.get("inv_cycles"));
-			port.setPhysicalPort((Number)info.get("physical_port"));
-
-			// Store this port configuration in memory
-			antennaPorts.add(i, port);
-
-			// Send this port configuration to the embedded module
-			byte[] cmd = llcs.antennaPortSetConfiguration(	i.byteValue(),
-															(short)(Math.round(port.getPowerLevel() * 10)),
-															port.getDwellTime().shortValue(),
-															port.getInvCycles().shortValue(),
-															port.getPhysicalPort().byteValue() );
-			if (cmd != null) { serialCmdQueue.put(cmd); } else { return false; }
-
-			// Send the port set state to the embedded module
-			byte[] cmd2 = llcs.antennaPortSetState(i.byteValue(), port.getPortState().getValue());
-			if (cmd2 != null) { serialCmdQueue.put(cmd2); } else { return false; }
-		}
-		return true;
-	}
-	
-	/** 
-	 * setSelect<P>
-	 * This method processes the "set_select" gateway command.
-	 * @return True means means successful update to the RFID module.
-	 * @throws InterruptedException 
-	 */
-	private Boolean setSelect( JSONObject command ) throws InterruptedException {
-		// Make sure we have a command
-		if (command == null) { return false; }
-
-		// Make sure we have parameters
-		JSONObject params = (JSONObject) command.get("params");
-		if (params == null) { return false; }
-
-		// Extract the select criteria values and save them to the select object
-		SelectCriteria criteria = new SelectCriteria();
-		criteria.setActiveState((String)params.get("active_state"));
-		criteria.setBank((String)params.get("bank"));
-		criteria.setOffset((Number)params.get("offset"));
-		criteria.setCount((Number)params.get("mask_length"));
-		criteria.setTargetFlag((String)params.get("target_flag"));
-		criteria.setAction((String)params.get("action"));
-		// Extract the select mask values and save them to the select object
-		for (int i = 0; i < criteria.MASK_LENGTH; i++) {
-			String label = "mask_data" + Integer.toString(i);
-			criteria.setMask(i, (Number)params.get(label));
-		}
-		// Determine which set of criteria this is and store it in the array.
-		Integer criteriaIndex = ((Number)params.get("criteria_index")).intValue();
-		select.add(criteriaIndex, criteria);
-		
-		// Send the select criteria to the embedded module
-		byte[] cmd = llcs.setSelectCriteria(criteriaIndex.byteValue(),
-											criteria.getBank().getValue(),
-											criteria.getOffset().shortValue(),
-											criteria.getCount().byteValue(),
-											criteria.getTargetFlag().getValue(),
-											criteria.getAction().byteValue(),
-											criteria.getTruncation().getValue());
-		if (cmd != null) { serialCmdQueue.put(cmd); } else { return false; }
-
-		// Send the select mask data to the embedded module
-		for (Integer i = 0; i < criteria.MASK_LENGTH; i++) {
-			byte[] mask = criteria.getMask(i);
-			byte[] cmd1 = llcs.setSelectMaskData(criteriaIndex.byteValue(), i.byteValue(),
-												 mask[0], mask[1], mask[2], mask[3]);
-			if (cmd1 != null) { serialCmdQueue.put(cmd1); } else { return false; }
-		}
-
-		// Send the set active select criteria to the embedded module
-		byte[] cmd2 = llcs.setActiveSelectCriteria( criteriaIndex.byteValue(),
-													criteria.getActiveState().getValue() );
-		if (cmd2 != null) { serialCmdQueue.put(cmd2); } else { return false; }
-		
-		return true;
-	}
-	
-	/** 
-	 * setPostMatch<P>
-	 * This method processes the "set_post_match" gateway command.
-	 * @return True means means successful update to the RFID module.
-	 * @throws InterruptedException 
-	 */
-	private Boolean setPostMatch( JSONObject command ) throws InterruptedException {
-		// Make sure we have a command
-		if (command == null) { return false; }
-
-		// Make sure we have parameters
-		JSONObject params = (JSONObject) command.get("params");
-		if (params == null) { return false; }
-
-		// Extract the values and save them to the post match object
-		postMatch.setMatchState((String)params.get("match_state"));
-		postMatch.setOffset((Number)params.get("offset"));
-		postMatch.setCount((Number)params.get("mask_length"));
-		// Extract the mask values and save them to the post match object
-		for (int i = 0; i < postMatch.MASK_LENGTH; i++) {
-			String label = "mask_data" + Integer.toString(i);
-			postMatch.setMask(i, (Number)params.get(label));
-		}
-
-		// Send the mask data to the embedded module
-		for (Integer i = 0; i < postMatch.MASK_LENGTH; i++) {
-			byte[] mask = postMatch.getMask(i);
-			byte[] cmd1 = llcs.setPostMatchMaskData(i.byteValue(), mask[0], mask[1], mask[2], mask[3]);
-			if (cmd1 != null) { serialCmdQueue.put(cmd1); } else { return false; }
-		}
-
-		// Send the post match criteria to the embedded module
-		byte[] cmd2 = llcs.setPostMatchCriteria(postMatch.getMatchState().getValue(),
-												postMatch.getOffset(), postMatch.getCount());
-		if (cmd2 != null) { serialCmdQueue.put(cmd2); } else { return false; }
-		
-		return true;
-	}
-	
-	/** 
-	 * setTagQuery<P>
-	 * This method processes the "set_tag_query" gateway command.
-	 * @return True means means successful update to the RFID module.
-	 * @throws InterruptedException 
-	 */
-	private Boolean setTagQuery( JSONObject command ) throws InterruptedException {
-		// Make sure we have a command
-		if (command == null) { return false; }
-
-		// Make sure we have parameters
-		JSONObject params = (JSONObject) command.get("params");
-		if (params == null) { return false; }
-
-		// Extract the values and save them to the profile object
-		profile.setSelectedState((String)params.get("selected_state"));
-		profile.setSessionFlag((String)params.get("session_flag"));
-		profile.setTargetState((String)params.get("target_state"));
-
-		// Send the tag query group to the embedded module
-		byte[] cmd1 = llcs.setQueryTagGroup(profile.getSelectedState().getValue(),
-											profile.getSessionFlag().getValue(),
-											profile.getTargetState().getValue());
-		if (cmd1 != null) { serialCmdQueue.put(cmd1); } else { return false; }
-		
-		return true;
-	}
-	
-	/** 
-	 * setQAlgorithm<P>
-	 * This method processes the "set_q_algorithm" gateway command.
-	 * @return True means means successful update to the RFID module.
-	 * @throws InterruptedException 
-	 */
-	private Boolean setQAlgorithm( JSONObject command ) throws InterruptedException {
-		// Make sure we have a command
-		if (command == null) { return false; }
-
-		// Make sure we have parameters
-		JSONObject params = (JSONObject) command.get("params");
-		if (params == null) { return false; }
-
-		// Extract the values and save them to the profile object
-		profile.setAlgorithm((String)params.get("algorithm"));
-		profile.setRetryCount((Number)params.get("retry_count"));
-		profile.setToggleTargetFlag((String)params.get("toggle_target_flag"));
-
-		// The remaining parameters depend on the algorithm
-		if (profile.getAlgorithm().toString().startsWith("Fixed")) {
-			profile.setFixedQValue((Number)params.get("fixed_q_value"));
-			profile.setRepeatUntilNoTags((String)params.get("repeat_until_no_tags"));
-		} else {
-			profile.setStartQValue((Number)params.get("start_q_value"));
-			profile.setMinQValue((Number)params.get("min_q_value"));
-			profile.setMaxQValue((Number)params.get("max_q_value"));
-			profile.setThresholdMultiplier((Number)params.get("threshold_multiplier"));
-		}
-
-		// Send the singulation algorithm to the embedded module
-		byte[] cmd1 = llcs.setCurrentSingulationAlgorithm(profile.getAlgorithm().getValue());
-		if (cmd1 != null) { serialCmdQueue.put(cmd1); } else { return false; }
-
-		// Send the singulation algorithm parameters to the embedded module
-		if (profile.getAlgorithm().toString().startsWith("Fixed")) {
-			byte[] cmd2 = llcs.setCurrentSingulationParameters( profile.getAlgorithm().getValue(),
-																profile.getFixedQValue().byteValue(),
-																profile.getRetryCount().byteValue(),
-																profile.getToggleTargetFlag().getValue(),
-																profile.getRepeatUntilNoTags().getValue() );
-			if (cmd2 != null) { serialCmdQueue.put(cmd2); } else { return false; }
-		} else {
-			byte[] cmd2 = llcs.setCurrentSingulationParameters( profile.getAlgorithm().getValue(),
-																profile.getStartQValue().byteValue(),
-																profile.getMinQValue().byteValue(),
-																profile.getMaxQValue().byteValue(),
-																profile.getRetryCount().byteValue(),
-																profile.getToggleTargetFlag().getValue(),
-																profile.getThresholdMultiplier().byteValue() );
-			if (cmd2 != null) { serialCmdQueue.put(cmd2); } else { return false; }
-		}
-		return true;
-	}
-	
-	/** 
-	 * inventoryStart<P>
-	 * This method sends an Inventory command to RFID module.
-	 * @return True means means successful update to the RFID module.
-	 * @throws InterruptedException 
-	 */
-	private Boolean inventoryStart( JSONObject command ) throws InterruptedException {
-		// Make sure we have a command
-		if (command == null) { return false; }
-
-		// Make sure we have parameters
-		JSONObject params = (JSONObject) command.get("params");
-		if (params == null) { return false; }
-
-		// Extract the parameters
-		profile.setPerformSelect((String) params.get("perform_select"));
-		profile.setPerformPostMatch((String) params.get("perform_post_match"));
-		// Check for continuous operation
-		String auto_repeat = (String) params.get("auto_repeat");
-		if ((auto_repeat != null) && (auto_repeat.startsWith("No"))) {
-			autoRepeat = false;
-		} else {
-			autoRepeat = true;
-		}
-		// Check if we should filter duplicates
-		String filter_duplicates = (String) params.get("filter_duplicates");
-		if ((filter_duplicates != null) && (filter_duplicates.startsWith("Yes"))) {
-			filterDuplicates = true;
-		} else {
-			filterDuplicates = false;
-		}
-		
-		// Check if we need to set the query group
-		if (profile.getPerformSelect() == CmdTagProtocol.PerformSelect.No) {
-			// Send the tag query group to the embedded module
-			byte[] cmd1 = llcs.setQueryTagGroup(profile.getSelectedState().getValue(),
-												profile.getSessionFlag().getValue(),
-												profile.getTargetState().getValue());
-			if (cmd1 != null) { serialCmdQueue.put(cmd1); } else { return false; }
-		}
-		// Now send the Inventory request
-		sendInventoryRequest();
-		return true;
-	}
-	
-	/** 
-	 * filteredInventory<P>
-	 * This method processes the "filtered_inventory" gateway command.
-	 * A filtered inventory is a macro command.  The underlying actions
-	 * performed are Select, Set Tag Group, Set Q Algorithm and Single Inventory.
-	 * This method utilizes select criteria 0.
-	 * @return True means means successful update to the RFID module.
-	 * @throws InterruptedException 
-	 */
-	private Boolean filteredInventory( JSONObject command ) throws InterruptedException {
-		// Make sure we have a command
-		if (command == null) { return false; }
-
-		// Make sure we have parameters
-		JSONObject params = (JSONObject) command.get("params");
-		if (params == null) { return false; }
-		
-		// Common Parameters
-		profile.setAlgorithm("FixedQ");
-		profile.setRepeatUntilNoTags("Yes");
-		profile.setToggleTargetFlag("No");
-		profile.setPerformSelect("Yes");
-		// Check for continuous operation
-		String auto_repeat = (String) params.get("auto_repeat");
-		if ((auto_repeat != null) && (auto_repeat.startsWith("No"))) {
-			autoRepeat = false;
-		} else {
-			autoRepeat = true;
-		}
-		// Check if we should filter duplicates
-		String filter_duplicates = (String) params.get("filter_duplicates");
-		if ((filter_duplicates != null) && (filter_duplicates.startsWith("Yes"))) {
-			filterDuplicates = true;
-		} else {
-			filterDuplicates = false;
-		}
-		// Extract the scan_mode and set certain values accordingly
-		String session = null;
-		String scanMode = (String) params.get("scan_mode");
-		if (scanMode.equalsIgnoreCase("Normal")) {
-			profile.setLinkProfile(2);
-			profile.setFixedQValue(7);
-			profile.setRetryCount(1);
-			session = "S2";
-			
-		} else if (scanMode.equalsIgnoreCase("Fast")) {
-			profile.setLinkProfile(3);
-			profile.setFixedQValue(5);
-			profile.setRetryCount(1);
-			session = "S1";
-			
-		} else if (scanMode.equalsIgnoreCase("Slow")) {
-			profile.setLinkProfile(0);
-			profile.setFixedQValue(15);
-			profile.setRetryCount(1);
-			session = "S2";
-			
-		} else if (scanMode.equalsIgnoreCase("Deep")) {
-			profile.setLinkProfile(0);
-			profile.setFixedQValue(15);
-			profile.setRetryCount(1);
-			session = "S3";
-		}
-		profile.setSessionFlag(session);
-
-		// Send the new link profile info to the embedded module
-		byte[] cmd1 = llcs.setCurrentLinkProfile(profile.getLinkProfile().byteValue());
-		if (cmd1 != null) { serialCmdQueue.put(cmd1); } else { return false; }
-
-		// Send the singulation algorithm parameters to the embedded module
-		byte[] cmd2 = llcs.setCurrentSingulationParameters( profile.getAlgorithm().getValue(),
-															profile.getFixedQValue().byteValue(),
-															profile.getRetryCount().byteValue(),
-															profile.getToggleTargetFlag().getValue(),
-															profile.getRepeatUntilNoTags().getValue() );
-		if (cmd2 != null) { serialCmdQueue.put(cmd2); } else { return false; }
-
-		// Set some select criteria values and save them to the select object
-		SelectCriteria criteria = new SelectCriteria();
-		criteria.setActiveState("Enabled");
-		criteria.setBank("EPC");
-		criteria.setOffset((Number)params.get("offset"));
-		criteria.setCount((Number)params.get("mask_length"));
-		criteria.setTargetFlag(session);
-		criteria.setAction("0");
-		// Extract the select mask values and save them to the select object
-		for (int i = 0; i < criteria.MASK_LENGTH; i++) {
-			String label = "mask_data" + Integer.toString(i);
-			criteria.setMask(i, (Number)params.get(label));
-		}
-		// Store it in the array.
-		select.add(0, criteria);
-		
-		// Send the select criteria to the embedded module
-		byte[] cmd3 = llcs.setSelectCriteria((byte)0,
-											criteria.getBank().getValue(),
-											criteria.getOffset().shortValue(),
-											criteria.getCount().byteValue(),
-											criteria.getTargetFlag().getValue(),
-											criteria.getAction().byteValue(),
-											criteria.getTruncation().getValue());
-		if (cmd3 != null) { serialCmdQueue.put(cmd3); } else { return false; }
-
-		// Send the select mask data to the embedded module
-		for (Integer i = 0; i < criteria.MASK_LENGTH; i++) {
-			byte[] mask = criteria.getMask(i);
-			byte[] cmd4 = llcs.setSelectMaskData((byte)0, i.byteValue(),
-												 mask[0], mask[1], mask[2], mask[3]);
-			if (cmd4 != null) { serialCmdQueue.put(cmd4); } else { return false; }
-		}
-
-		// Send the set active select criteria to the embedded module
-		byte[] cmd5 = llcs.setActiveSelectCriteria( (byte)0, criteria.getActiveState().getValue() );
-		if (cmd5 != null) { serialCmdQueue.put(cmd5); } else { return false; }
-		
-		// Extract the profile object values
-		profile.setSelectedState("Any");
-		profile.setSessionFlag((String)params.get("session_flag"));
-		String matchState = (String)params.get("match_state");
-		if ((matchState != null) && (matchState.startsWith("Include"))) {
-			profile.setTargetState("A");			
-		} else {
-			profile.setTargetState("B");
-		}
-
-		// Send the tag query group to the embedded module
-		byte[] cmd6 = llcs.setQueryTagGroup(profile.getSelectedState().getValue(),
-											profile.getSessionFlag().getValue(),
-											profile.getTargetState().getValue());
-		if (cmd6 != null) { serialCmdQueue.put(cmd6); } else { return false; }
-		
-		sendInventoryRequest();
-		return true;
 	}
 	
 	/** 
@@ -2194,17 +1137,9 @@ public class SmartAntenna {
 		// Determine if we will be performing a select or post match
 		byte[] cmd = llcs.tagInventory( profile.getPerformSelect().getValue(),
 										profile.getPerformPostMatch().getValue(),
-										profile.getPerformGuardMode().getValue() );
+										(byte) 0x00 );
 
 		if (cmd != null) { serialCmdQueue.put(cmd); } else { return false; }
-		// Determine if the reader will be buffering tag info until the end
-		if ((profile.getPerformGuardMode() == CmdTagProtocol.PerformGuardMode.RealtimeMode) ||
-			(profile.getPerformGuardMode() == CmdTagProtocol.PerformGuardMode.ScreeningMode) ||
-			(moduleType.startsWith("HPSIP"))) {
-			usingGuardMode = false;
-		} else {
-			usingGuardMode = true;
-		}
 		return true;
 	}
 	
@@ -2247,52 +1182,6 @@ public class SmartAntenna {
 	}
 	
 	/** 
-	 * sendGetTagNum<P>
-	 * This method requests the number of tags stored in the guard buffer.
-	 * This method only applies to the RU861 module.
-	 * @return True means means successful update to the RFID module.
-	 * @throws InterruptedException 
-	 */
-	private Boolean sendGetTagNum() throws InterruptedException {
-		if (moduleType.startsWith("RU861")) {
-	    	log.makeEntry("Sending RFID_18K6CGetGuardBufferTagNum", Log.Level.Debug);
-			byte[] cmd = llcs.getGuardBufferTagNum();
-			if (cmd != null) {
-				serialCmdQueue.put(cmd);
-				return true;
-			} else {
-				return false;
-			}
-		} else {
-	    	log.makeEntry("Invalid Module Type for RFID_18K6CGetGuardBufferTagNum", Log.Level.Warning);
-			return false;
-		}
-	}
-	
-	/** 
-	 * sendGetTagInfo<P>
-	 * This method requests all tag info stored in the guard buffer.
-	 * This method only applies to the RU861 module.
-	 * @return True means means successful update to the RFID module.
-	 * @throws InterruptedException 
-	 */
-	private Boolean sendGetTagInfo() throws InterruptedException {
-		if (moduleType.startsWith("RU861")) {
-	    	log.makeEntry("Sending RFID_18K6CGetGuardBufferTagInfo", Log.Level.Debug);
-			byte[] cmd = llcs.getGuardBufferTagInfo((byte)0);
-			if (cmd != null) {
-				serialCmdQueue.put(cmd);
-				return true;
-			} else {
-				return false;
-			}
-		} else {
-	    	log.makeEntry("Invalid Module Type for RFID_18K6CGetGuardBufferTagInfo", Log.Level.Warning);
-			return false;
-		}
-	}
-	
-	/** 
 	 * parseConfigFile<P>
 	 * This method parses the config file.
 	 * @throws IOException 
@@ -2315,22 +1204,16 @@ public class SmartAntenna {
 					this.moduleType = st[1];
 				} else if (currentLine.startsWith("NUM_PHYSICAL_PORTS") && (st.length == 2)) {
 					this.numPhysicalPorts = Integer.parseInt(st[1]);
-				} else if (currentLine.startsWith("USE_MESH_AGENT") && (st.length == 2)) {
-					this.useMeshAgent = Boolean.parseBoolean(st[1]);
-				} else if (currentLine.startsWith("BROKER_URI") && (st.length == 2)) {
-					this.broker_uri = st[1];
-				} else if (currentLine.startsWith("COMMAND_TOPIC") && (st.length == 2)) {
-					this.sub_topic = st[1];
-				} else if (currentLine.startsWith("RESPONSE_TOPIC") && (st.length == 2)) {
-					this.pub_topic_cmd_response = st[1];
-				} else if (currentLine.startsWith("STATUS_TOPIC") && (st.length == 2)) {
-					this.pub_topic_status = st[1];
-				} else if (currentLine.startsWith("DATA_TOPIC") && (st.length == 2)) {
-					this.pub_topic_data = st[1];
-				} else if (currentLine.startsWith("FACILITY_ID") && (st.length == 2)) {
-					this.facility_id = st[1];
+				} else if (currentLine.startsWith("PHOTO_URL") && (st.length == 2)) {
+					this.photoUrl = st[1];
+				} else if (currentLine.startsWith("USERNAME") && (st.length == 2)) {
+					this.username = st[1];
+				} else if (currentLine.startsWith("PASSWORD") && (st.length == 2)) {
+					this.password = st[1];
+				} else if (currentLine.startsWith("LOCATION") && (st.length == 2)) {
+					this.location = st[1];
 				} else if (currentLine.startsWith("DEVICE_ID") && (st.length == 2)) {
-					this.device_id = st[1];
+					this.deviceId = st[1];
 				} else if (currentLine.startsWith("LATITUDE") && (st.length == 2)) {
 					this.latitude = Double.parseDouble(st[1]);
 				} else if (currentLine.startsWith("LONGITUDE") && (st.length == 2)) {
@@ -3511,19 +2394,6 @@ public class SmartAntenna {
 	 * This method performs all things necessary before exiting the SmartAntenna application.
 	 */
 	private void cleanup() {
-		// Close the mesh agent
-		if ((useMeshAgent) && (myMeshClient != null)) {
-			// TODO:
-		}
-		// Disconnect from the RFID Gateway
-		sendStatusUpdate("shutting_down");
-		if ((myMqttClient != null) && myMqttClient.isConnected()) {
-			try {
-				myMqttClient.disconnect();
-			} catch (MqttException e) {
-				log.makeEntry("Unable to disconnect from the MQTT broker\n" + e.toString(), Log.Level.Error);
-			}
-		}
 		// Close the serial port
 		if ((serialComms != null) && serialComms.isConnected()) {
 			serialComms.disconnect();
