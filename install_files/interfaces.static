@@ -11,10 +11,10 @@ iface eth0 inet static
     gateway 450
 
 # WiFi
-#auto wlan1
-#iface wlan1 inet dhcp
-#        wpa-ssid EL-Guest
-#        wpa-psk a452f010d650ce7af91f8a3def0fb575ec9e0bd64afc458be57d4c56f41b4d1b
+auto wlan1
+iface wlan1 inet dhcp
+        wpa-ssid EL-Guest
+        wpa-psk a452f010d650ce7af91f8a3def0fb575ec9e0bd64afc458be57d4c56f41b4d1b
 
 # USB Cellular Dongle
 #auto ppp0

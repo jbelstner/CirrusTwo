@@ -6,7 +6,7 @@ case $1 in
     start)
         echo "$SERVICE_NAME starting ..."
         if [ ! -f $PID_NAME ]; then
-            java -jar /opt/encinitaslabs/rfid/SmartAntenna.jar false &
+            java -jar /opt/encinitaslabs/rfid/CirrusII.jar false &
             echo $! > $PID_NAME
             echo "$SERVICE_NAME started ..."
         else
@@ -34,7 +34,7 @@ case $1 in
             echo "$SERVICE_NAME stopped ...";
             rm $PID_NAME
             echo "$SERVICE_NAME starting ..."
-            java -jar /opt/encinitaslabs/rfid/SmartAntenna.jar false &
+            java -jar /opt/encinitaslabs/rfid/CirrusII.jar false &
             echo $! > $PID_NAME
             echo "$SERVICE_NAME started ..."
         else

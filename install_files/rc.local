@@ -8,7 +8,7 @@
 # Start the MeshCentral Agent
 /usr/local/mesh/mesh_linux start
 
-# Start the Encinitas Labs Smart Antenna application
+# Start the Encinitas Labs Cirrus-II application
 /opt/encinitaslabs/rfid/gpio_setup.sh
 /etc/init.d/rfid.sh start
 

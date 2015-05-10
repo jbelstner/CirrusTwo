@@ -95,9 +95,9 @@ public class CirrusII {
 	private Boolean pingTagList = true;
 	private Boolean autoRepeat = false;
 	private Integer motionThreshold = 12; // 12 dB
-	private Integer ageThreshold = 86400; // 1 day
-	private final Integer motionThresholdLimit = 100; // 100 dB
-	private final Integer ageThresholdLimit = 259200; // 30 days
+//	private Integer ageThreshold = 86400; // 1 day
+//	private final Integer motionThresholdLimit = 100; // 100 dB
+//	private final Integer ageThresholdLimit = 259200; // 30 days
 	// Fotaflo parameters
 	private LinkedBlockingQueue<String> pictureQueue = null;
     private AtomicBoolean imageCaptured = null;
@@ -109,7 +109,7 @@ public class CirrusII {
 	private String deviceId = null;
 	private String location = null;
 	// Local parameters
-	private static final String apiVersionString = "C2-0.1.5";
+	private static final String apiVersionString = "C2-0.1.6";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -194,8 +194,7 @@ public class CirrusII {
 		
 		// Fotaflo specific objects
 		camera = new Camera(pictureQueue, log);
-//		fotaflo = new Fotaflo(deviceId, location);
-		fotaflo = new Fotaflo(null, null);
+		fotaflo = new Fotaflo(deviceId, location);
 		fotaflo.setLogObject(log);
 		fotaflo.setCredentials(username, password);
 		fotaflo.setUploadUrl(photoUrl);
@@ -550,12 +549,12 @@ public class CirrusII {
 	}
 	
 	/** 
-	 * buildTagListJsonObject<P>
-	 * This method builds the inventory_data JSON RPC indication object.
-	 * @param tagList The specific tag list to build JSON record from.
+	 * buildTagDatabase<P>
+	 * This method builds a (no duplicates) tag database of all tags seen.
+	 * @param tagList The specific tag list to work from.
 	 */
-	private String buildTagListJsonObject( ArrayList<TagData> tagList ) {
-		// Create an Inventory Data JSON RPC indication record
+	private String buildTagDatabase( ArrayList<TagData> tagList ) {
+		// Create a (no duplicates) tag database of all tags seen
 		Integer tagCount = tagList.size();
 		// Iterate through the entire ArrayList of tags
 		TagData tagData = null, oldData = null;
@@ -592,17 +591,20 @@ public class CirrusII {
 			TagData tagData = tagDatabase.get(epc);
 			tags.append(tagData.epc.substring(17) + ",");
 		}
+		tagDatabase.clear();
+		// Strip off the trailing comma
 		if (tags.charAt(tags.length() - 1) == ',') {
 			tags.deleteCharAt(tags.length() - 1);			
 		}
+		// Ready to take a new picture
+		imageCaptured.set(false);
 		try {
 			fotaflo.postImageToServer(fileToUpload, tags.toString());
+            // Delete the file once its been uploaded
+			Runtime.getRuntime().exec("rm " + fileToUpload);
 		} catch (Exception e) {
 			log.makeEntry("Unable to upload image/tags\n" + e.toString(), Log.Level.Error);
 		}
-		tagDatabase.clear();
-		// Ready to take a new picture
-		imageCaptured.set(false);
 	}
 
 	/** 
@@ -1102,7 +1104,7 @@ public class CirrusII {
 					if (testModeInventory) {
 						printTagListData(tagList_ping);
 					} else {
-						buildTagListJsonObject(tagList_ping);
+						buildTagDatabase(tagList_ping);
 					}
 					tagList_ping.clear();
 				} else {
@@ -1117,7 +1119,7 @@ public class CirrusII {
 					if (testModeInventory) {
 						printTagListData(tagList_pong);
 					} else {
-						buildTagListJsonObject(tagList_pong);
+						buildTagDatabase(tagList_pong);
 					}
 					tagList_pong.clear();
 				} else {
@@ -1211,9 +1213,11 @@ public class CirrusII {
 				} else if (currentLine.startsWith("PASSWORD") && (st.length == 2)) {
 					this.password = st[1];
 				} else if (currentLine.startsWith("LOCATION") && (st.length == 2)) {
-					this.location = st[1];
-				} else if (currentLine.startsWith("DEVICE_ID") && (st.length == 2)) {
-					this.deviceId = st[1];
+					this.location = currentLine.substring(9); // everything after LOCATION
+		        	System.out.println("LOCATION = " + location);
+				} else if (currentLine.startsWith("DEVICE_ID") && (st.length >= 2)) {
+					this.deviceId = currentLine.substring(10); // everything after DEVICE_ID
+		        	System.out.println("DEVICE_ID = " + deviceId);
 				} else if (currentLine.startsWith("LATITUDE") && (st.length == 2)) {
 					this.latitude = Double.parseDouble(st[1]);
 				} else if (currentLine.startsWith("LONGITUDE") && (st.length == 2)) {
@@ -1222,8 +1226,8 @@ public class CirrusII {
 					this.profileFilename = st[1];
 				} else if (currentLine.startsWith("MOTION_THRESHOLD") && (st.length == 2)) {
 					this.motionThreshold = Integer.parseInt(st[1]);
-				} else if (currentLine.startsWith("AGE_THRESHOLD") && (st.length == 2)) {
-					this.ageThreshold = Integer.parseInt(st[1]);
+//				} else if (currentLine.startsWith("AGE_THRESHOLD") && (st.length == 2)) {
+//					this.ageThreshold = Integer.parseInt(st[1]);
 				} else if (currentLine.startsWith("LOG_FILENAME") && (st.length == 2)) {
 					logFilename = st[1];
 				} else if (currentLine.startsWith("SERIAL_DEBUG") && (st.length == 2)) {
@@ -1348,8 +1352,8 @@ public class CirrusII {
 		// RFID Module Config Commands Currently Supported
 		// See MTI Command Reference Manual Section 4.1
 		if ((command.startsWith("set_device_id")) && (cli.length >= 2)) {
-			byte deviceId = Byte.decode(cli[1]);
-			byte[] cmd = llcs.setDeviceID(deviceId);
+			deviceId = cli[1];
+			byte[] cmd = llcs.setDeviceID((byte)deviceId.hashCode());
 			if (cmd != null) { serialCmdQueue.put(cmd); }
 			else { System.out.println("Invalid parameter or format for " + cli[0]); }
 

@@ -155,8 +155,6 @@ public class Fotaflo {
                 rd.close();
     			log( "Server Response " + response.toString(), Log.Level.Information );
                 uc.disconnect();
-                // Delete the file once its been uploaded
-    			Runtime.getRuntime().exec("rm " + filename);
             } else {
     			log( filename + " does not exitst!", Log.Level.Warning );
             }
