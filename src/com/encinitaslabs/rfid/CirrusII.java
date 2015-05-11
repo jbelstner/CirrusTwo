@@ -109,7 +109,7 @@ public class CirrusII {
 	private String deviceId = null;
 	private String location = null;
 	// Local parameters
-	private static final String apiVersionString = "C2-0.1.6";
+	private static final String apiVersionString = "C2-0.1.7";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -589,11 +589,11 @@ public class CirrusII {
 		Set<String> epcs = tagDatabase.keySet();
 		for (String epc: epcs) {
 			TagData tagData = tagDatabase.get(epc);
-			tags.append(tagData.epc.substring(17) + ",");
+			tags.append(tagData.epc.substring(17) + ";");
 		}
 		tagDatabase.clear();
 		// Strip off the trailing comma
-		if (tags.charAt(tags.length() - 1) == ',') {
+		if (tags.charAt(tags.length() - 1) == ';') {
 			tags.deleteCharAt(tags.length() - 1);			
 		}
 		// Ready to take a new picture
