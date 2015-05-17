@@ -109,7 +109,8 @@ public class Fotaflo {
      * @param message The message to log
      * @param level_ The log level of this particular information
      */
-	public void postImageToServer( String filename, String tags ) throws Exception {
+	public Boolean postImageToServer( String filename, String tags ) throws Exception {
+		Boolean success = true;
         String credentials = username + ':' + password;
         Base64 encoder = new Base64();
         byte[] credArray = credentials.getBytes();
@@ -156,7 +157,8 @@ public class Fotaflo {
     			log( "Server Response " + response.toString(), Log.Level.Information );
                 uc.disconnect();
             } else {
-    			log( filename + " does not exitst!", Log.Level.Warning );
+    			log( filename + " does not exist!", Log.Level.Warning );
+    			success = false;
             }
         } finally {
             if (content != null){
@@ -166,6 +168,7 @@ public class Fotaflo {
                 source.close();
             }
         }
+        return success;
 	}
 
 	/** 

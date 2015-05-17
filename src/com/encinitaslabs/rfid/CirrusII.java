@@ -23,8 +23,10 @@
 package com.encinitaslabs.rfid;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
@@ -32,8 +34,6 @@ import java.util.Date;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import com.encinitaslabs.rfid.cmd.CmdAntennaPortConf;
 import com.encinitaslabs.rfid.cmd.CmdHead;
 import com.encinitaslabs.rfid.cmd.CmdReaderModuleFirmwareAccess;
@@ -89,18 +89,13 @@ public class CirrusII {
 	private LinkedBlockingQueue<byte[]> serialRspQueue = null;
 	private LinkedBlockingQueue<RfidState> nextRfidState = null;
 	// Tag Data parameters
-	private ArrayList<TagData> tagList_ping = null;
-	private ArrayList<TagData> tagList_pong = null;
+	private ConcurrentHashMap<String, TagData> tagEvents = null;
 	private ConcurrentHashMap<String, TagData> tagDatabase = null;
-	private Boolean pingTagList = true;
+	private Boolean tagPresent = false;
 	private Boolean autoRepeat = false;
-	private Integer motionThreshold = 12; // 12 dB
-//	private Integer ageThreshold = 86400; // 1 day
-//	private final Integer motionThresholdLimit = 100; // 100 dB
-//	private final Integer ageThresholdLimit = 259200; // 30 days
 	// Fotaflo parameters
+	private final int MIN_LENGTH_FILENAME = 20;
 	private LinkedBlockingQueue<String> pictureQueue = null;
-    private AtomicBoolean imageCaptured = null;
 	private Fotaflo fotaflo = null;
 	private Camera camera = null;
 	private String username = null;
@@ -108,12 +103,21 @@ public class CirrusII {
 	private String photoUrl = null;
 	private String deviceId = null;
 	private String location = null;
+	private Integer epcLast = null;
+	private Integer epcFirst = null;
+	private Integer shotsPerTrigger = 1;  // fixed for now
+	private Integer triggersPerEvent = 3;
+	private Integer eventTimeout_sec = 30;
+	// Statistics
+	private Integer numberOfTriggers = 0;
+	private Integer numberOfUploads = 0;
+	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2-0.1.7";
+	private static final String apiVersionString = "C2-0.8.4";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
-	private Boolean testModeInventory = false;
+	private Boolean testMode = false;
 	private Boolean serialDebug = false;
 	private String sipVersionString = " ";
 	private LedControl led = null;
@@ -124,11 +128,13 @@ public class CirrusII {
 	private Log log = null;
 	private SelfTest bitData = null;
 	private Sensors sensors = null;
+	private boolean motionFlag = false;
+	private boolean errorFlag = false;
 	// Timeout and retry parameters
-	private final Integer ticTime_ms = 500;
-	private final Integer selfTestMask = 15;
-	private final Integer selfTestTime = 10;
-	private final Integer readerResetCount_tics = 20;
+	private final Integer ticTime_ms = 1000;
+	private final Integer selfTestMask = 7;
+	private final Integer selfTestTime = 7;
+	private final Integer readerResetCount_tics = 10;
 	private Integer readerResetCounter = 0;
 	private Double latitude = 0.0;
 	private Double longitude = 0.0;
@@ -184,8 +190,7 @@ public class CirrusII {
 		log = new Log(logFilename, logLevel, useCLI);
 		
 		// Initialize the various queues
-		tagList_ping = new ArrayList<TagData>();
-		tagList_pong = new ArrayList<TagData>();
+		tagEvents = new ConcurrentHashMap<String, TagData>();
 		tagDatabase = new ConcurrentHashMap<String, TagData>();
 		pictureQueue = new LinkedBlockingQueue<String>();
 		serialCmdQueue = new LinkedBlockingQueue<byte[]>();
@@ -198,7 +203,6 @@ public class CirrusII {
 		fotaflo.setLogObject(log);
 		fotaflo.setCredentials(username, password);
 		fotaflo.setUploadUrl(photoUrl);
-		imageCaptured = new AtomicBoolean(false);
 
 		// SERIAL PORT INITIALIZATION
 		serialComms = new SerialComms(serialRspQueue, serialDebug);
@@ -257,7 +261,7 @@ public class CirrusII {
 			};
 			cliWorker.start();
 		}
-
+		
 		// MANAGE THE PICTURE UPLOAD QUEUE
 		Thread imageWorker = new Thread () {
 			public void run() {
@@ -492,15 +496,7 @@ public class CirrusII {
 				log.makeEntry( "Received Inventory packet in the wrong state!", Log.Level.Warning);
 			} else {
 				// Process the tag data
-				if (pingTagList) {
-					synchronized(tagList_ping) {
-						processInventoryResponse(dataBuffer, tagList_ping);						
-					}
-				} else {
-					synchronized(tagList_pong) {
-						processInventoryResponse(dataBuffer, tagList_pong);
-					}
-				}
+				processInventoryResponse(dataBuffer);						
 			}
 			
 		} else if (responseType.contains("End")) {
@@ -528,52 +524,92 @@ public class CirrusII {
 	 * processInventoryResponse<P>
 	 * This method parses the inventory response message.
 	 * @param dataBuffer A byte buffer containing the command.
-	 * @param tagList The tag list to place this data in.
 	 */
-	private void processInventoryResponse( byte[] dataBuffer, ArrayList<TagData> tagList ) {
+	private void processInventoryResponse( byte[] dataBuffer ) {
 		// Extract the values of interest from the response buffer
 		TagData tagData = new TagData();
 		CmdTagProtocol.RFID_18K6CTagInventory.parseResponse(dataBuffer, false, tagData);
 		if (tagData.crcValid) {
+			tagPresent = true;
+			if (testMode) {
+				// Test mode processing of tag data
+				System.out.println(tagData.epc);
+				return;
+			}
 			// Add the time stamp
 			tagData.timeStamp = new Date().getTime();
-			// Add the tag data
-			tagList.add(tagData);
-			// Save the temperature data
-			bitData.setRfModuleTemp(tagData.temp);
-			// Maybe take a photo
-			if (imageCaptured.compareAndSet(false, true)) {
-				camera.captureImageAndDownload();
+			TagData oldData = tagEvents.get(tagData.epc);
+			boolean tryToTakePhoto = false;
+			// Tags not in the event database cause a photo
+			if (oldData == null) {
+				tryToTakePhoto = true;
+				oldData = tagData;
 			}
+			// Tags in the event database that have shots left cause a photo
+			if (oldData.shotCount < triggersPerEvent) {
+				tryToTakePhoto = true;
+			}
+			// If we should take photo, check if the camera is ready
+			if (tryToTakePhoto && camera.isReady()) {
+				// Trigger the camera
+				if (camera.captureImageAndDownload(oldData.epc.substring(epcFirst, epcLast), shotsPerTrigger)) {
+					numberOfTriggers++;
+					// Update the event database
+					oldData.shotCount++;				
+					oldData.timeStamp = tagData.timeStamp;
+					tagEvents.put(oldData.epc, oldData);
+					log.makeEntry(oldData.epc + " added to tagEvent", Log.Level.Information);
+				}
+			}
+			// Update the all inclusive Tag Database
+			tagDatabase.put(tagData.epc, tagData);
 		}
 	}
 	
 	/** 
-	 * buildTagDatabase<P>
-	 * This method builds a (no duplicates) tag database of all tags seen.
-	 * @param tagList The specific tag list to work from.
+	 * ageTagDatabase<P>
+	 * This method ages the tag database based on EVENT_TIMEOUT_SEC
 	 */
-	private String buildTagDatabase( ArrayList<TagData> tagList ) {
-		// Create a (no duplicates) tag database of all tags seen
-		Integer tagCount = tagList.size();
+	private void ageTagEvents( ) throws NullPointerException {
+		// Get the current time
+		Long timeStamp = new Date().getTime();
 		// Iterate through the entire ArrayList of tags
-		TagData tagData = null, oldData = null;
-		for (int i = 0; i < tagCount; i++) {
-			tagData = tagList.get(i);
-			if (tagData.epc != null) {
-				oldData = tagDatabase.get(tagData.epc);
-				if (oldData == null) {
-					tagData.newTag = true;
-					tagDatabase.put(tagData.epc, tagData);
-				} else {
-					oldData.update(tagData, motionThreshold);
-					tagDatabase.put(tagData.epc, oldData);
-				}
+		Set<String> epcs = tagEvents.keySet();
+		for (String epc: epcs) {
+			TagData tagData = tagEvents.get(epc);
+			if ((timeStamp - tagData.timeStamp) > (eventTimeout_sec * 1000)) {
+				log.makeEntry(epc + " removed from tagEvents", Log.Level.Information);
+				tagEvents.remove(epc);
 			}
 		}
+	}
 
-		log.makeEntry("Reads = " + tagCount, Log.Level.Information);
-		return null;
+	/** 
+	 * uploadLeftoverPictures<P>
+	 * This method attempts to upload any stored pictures.
+	 */
+	private Boolean queueLeftoverFiles() {
+		Integer oldFiles = 0;
+		// Scrape the command line
+		Process proc;
+		try {
+			proc = Runtime.getRuntime().exec("./get_leftovers.sh");
+			BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+			String line = "";
+			while ((line = stdInput.readLine()) != null) {
+				if ((line.length() > MIN_LENGTH_FILENAME) && line.endsWith(".jpg")) {
+					pictureQueue.put(line);
+					oldFiles++;
+				}
+			}
+			if (oldFiles > 0) {
+				log.makeEntry("Uploading " + oldFiles + " old files", Log.Level.Information);
+			}
+			return true;
+		} catch (Exception e) {
+			log.makeEntry( "Error reading directory!\n" + e.toString(), Log.Level.Warning );
+			return false;
+		}
 	}
 
 	/** 
@@ -582,24 +618,11 @@ public class CirrusII {
 	 * image file and uploads the record to the Fotaflo database.
 	 */
 	private void associateFileWithTagsAndUpload( String fileToUpload ) {
-		// Create an tags record
-		Integer tagCount = tagDatabase.size();
-		log.makeEntry("Tags = " + tagCount, Log.Level.Information);
-		StringBuilder tags = new StringBuilder("");
-		Set<String> epcs = tagDatabase.keySet();
-		for (String epc: epcs) {
-			TagData tagData = tagDatabase.get(epc);
-			tags.append(tagData.epc.substring(17) + ";");
-		}
-		tagDatabase.clear();
-		// Strip off the trailing comma
-		if (tags.charAt(tags.length() - 1) == ';') {
-			tags.deleteCharAt(tags.length() - 1);			
-		}
-		// Ready to take a new picture
-		imageCaptured.set(false);
+		// Get the one tag that triggered this photo
+		String epcPlusTimestamp[] = fileToUpload.split("-");
 		try {
-			fotaflo.postImageToServer(fileToUpload, tags.toString());
+			fotaflo.postImageToServer(fileToUpload, epcPlusTimestamp[0]);
+			numberOfUploads++;
             // Delete the file once its been uploaded
 			Runtime.getRuntime().exec("rm " + fileToUpload);
 		} catch (Exception e) {
@@ -615,18 +638,20 @@ public class CirrusII {
 		System.out.println( "\n\n" );
 		System.out.println( "SmartAntenna Command Line Options Currently Supported" );
 		System.out.println( "\n" );
-		System.out.println( "config     - Displays the list of RFID Module Config commands." );
-		System.out.println( "antenna    - Displays the list of RFID Antenna Config commands." );
-		System.out.println( "tag_select - Displays the list of RFID Tag Select commands." );
-		System.out.println( "tag_access - Displays the list of RFID Tag Access commands." );
-		System.out.println( "tag_proto  - Displays the list of RFID Tag Protocol commands." );
-		System.out.println( "control    - Displays the list of RFID Module Control commands." );
-		System.out.println( "firmware   - Displays the list of RFID Firmware Access commands." );
-		System.out.println( "gpio_ctrl  - Displays the list of RFID GPIO Control commands." );
-		System.out.println( "test_mode  - Displays the list of RFID Test Support commands." );
-		System.out.println( "macros     - Displays the list of RFID Macro commands." );
-		System.out.println( "help       - Displays the list of Command Line Options." );
-		System.out.println( "quit       - Shuts down the Smart Antenna application." );
+		System.out.println( "test_mode_on  - Turns Test Mode functionality ON." );
+		System.out.println( "test_mode_off - Turns Test Mode functionality OFF." );
+		System.out.println( "config        - Displays the list of RFID Module Config commands." );
+		System.out.println( "antenna       - Displays the list of RFID Antenna Config commands." );
+		System.out.println( "tag_select    - Displays the list of RFID Tag Select commands." );
+		System.out.println( "tag_access    - Displays the list of RFID Tag Access commands." );
+		System.out.println( "tag_proto     - Displays the list of RFID Tag Protocol commands." );
+		System.out.println( "control       - Displays the list of RFID Module Control commands." );
+		System.out.println( "firmware      - Displays the list of RFID Firmware Access commands." );
+		System.out.println( "gpio_ctrl     - Displays the list of RFID GPIO Control commands." );
+		System.out.println( "test_mode     - Displays the list of RFID Test Support commands." );
+		System.out.println( "macros        - Displays the list of RFID Macro commands." );
+		System.out.println( "help          - Displays the list of Command Line Options." );
+		System.out.println( "quit          - Shuts down the Smart Antenna application." );
 		System.out.println( "\n" );
 	}
 	
@@ -904,13 +929,49 @@ public class CirrusII {
 	}
 	
 	/** 
+	 * updateVisualIndicator<P>
+	 * This method updated the LED on the Smart Antenna.
+	 * @return void
+	 */
+	private void updateVisualIndicator( ) {
+		// No sense on going any further in this case
+		if (led == null) { return; }
+		// Do things based on combination of the current RFID state and flags
+		if (errorFlag) {
+			led.set(LedControl.Color.Red, LedControl.BlinkState.MediumBlink);
+		} else {
+			switch (rfidState) {
+			case Idle:
+				led.set(LedControl.Color.Green, LedControl.BlinkState.Constant);
+				break;
+			case WaitingForResponse:
+			case WaitingForBegin:
+			case WaitingForInventory:
+			case WaitingForAccess:
+				led.set(LedControl.Color.Blue, LedControl.BlinkState.Constant);
+				break;
+			case WaitingForEnd:
+				if (!tagPresent) {
+					led.set(LedControl.Color.Blue, LedControl.BlinkState.Constant);
+				} else {
+					led.set(LedControl.Color.Blue, LedControl.BlinkState.FastBlink);
+				}
+				break;
+			case WaitingForReset:
+				led.set(LedControl.Color.Red, LedControl.BlinkState.Constant);
+				break;
+			}
+		}
+	}
+		
+	/** 
 	 * setRfidState<P>
 	 * This method sets the RFID State.
 	 * @param RfidState newRfidState
 	 * @return void
 	 */
 	private void setRfidState( RfidState newRfidState ) {
-		log.makeEntry(newRfidState.toString(), Log.Level.Information);
+		log.makeEntry(newRfidState.toString(), Log.Level.Debug);
 		synchronized(rfidState) {
 			rfidState = newRfidState;
 		}
@@ -937,6 +998,12 @@ public class CirrusII {
 		} else if (method.equalsIgnoreCase("quit")) {
 			cleanup();
 			System.exit(0); 
+		} else if (method.equalsIgnoreCase("test_mode_on")) {
+			System.out.println("Test Mode = ON\n");
+			testMode = true;
+		} else if (method.equalsIgnoreCase("test_mode_off")) {
+			System.out.println("Test Mode = OFF\n");
+			testMode = false;
 		} else if (method.equalsIgnoreCase("config")) {
 			showModuleConfigCommands();
 		} else if (method.equalsIgnoreCase("antenna")) {
@@ -978,9 +1045,11 @@ public class CirrusII {
 			led.beacon("Disable");
 		} else if (method.equalsIgnoreCase("capture_image")) {
 			TagData tagData = new TagData();
-			tagData.epc = "1000000000000000000001FF";
+			tagData.epc = "1234567";
+			tagPresent = true;
+			tagEvents.put(tagData.epc, tagData);
 			tagDatabase.put(tagData.epc, tagData);
-			camera.captureImageAndDownload();
+			camera.captureImageAndDownload(tagData.epc, shotsPerTrigger);
 		} else if (method.equalsIgnoreCase("show_database")) {
 			printTagDatabase();
 		} else if (method.equalsIgnoreCase("flush_database")) {
@@ -997,7 +1066,6 @@ public class CirrusII {
 		} else if (method.equalsIgnoreCase("run_bit")) {
 			bitData.sendBitResponseToCli();
 		} else if (	method.equalsIgnoreCase("reset") ) {
-			testModeInventory = false;
 			try {
 				// Close and reopen the serial port
 				if ((serialComms != null) && serialComms.isConnected()) {
@@ -1013,7 +1081,7 @@ public class CirrusII {
 				log.makeEntry("Unable to re-open " + rfidCommPort + "\n" + e.toString(), Log.Level.Error);
 			}
 			
-		} else {
+		} else if (testMode) {
 			// Individual LLCS commands are handled here
 			try {
 				executeTestModeCommand(command);				
@@ -1031,13 +1099,17 @@ public class CirrusII {
 	 */
 	private void processTicTimer() {
 		// Autonomous power on things for Fotaflo
-		if ((ticTimerCount == 0) && (useCLI == false)) {
-			try {
-				autoRepeat = true;
-				sendInventoryRequest();
-			} catch (InterruptedException e) {
-				log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
-			}				
+		if (ticTimerCount == 0) {
+			// Upload any leftover pictures from last time
+			queueLeftoverFiles();
+			if (!useCLI) {
+				try {
+					autoRepeat = true;
+					sendInventoryRequest();
+				} catch (InterruptedException e) {
+					log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+				}				
+			}
 		}
 		ticTimerCount++;
 		// Check for motion under the Smart Antenna
@@ -1046,12 +1118,8 @@ public class CirrusII {
 		}
 		// Perform self-tests at a slower periodic rate
 		if ((ticTimerCount & selfTestMask) == selfTestTime) {
-			sensors.resetMotionDetector();  
-			if (bitData.performSelfTests() == true) {
-				led.error(true);
-			} else {
-				led.error(false);
-			}
+			motionFlag = sensors.resetMotionDetector();
+			errorFlag = bitData.performSelfTests();
 			// Ping the RFID Module when Idle and no inventory is in progress
 			if ((rfidState == RfidState.Idle) && (!autoRepeat)) {
 				try {
@@ -1081,6 +1149,12 @@ public class CirrusII {
 					log.makeEntry("Unable Auto Reset RFID Serial\n" + e.toString(), Log.Level.Error);
 				}
 			}
+			// Update some runtime statistics
+			try {
+				updateStatistics();
+			} catch (Exception e) {
+				log.makeEntry( "Unable to update statistics\n" + e.toString(), Log.Level.Error );
+			}
 		}
 		
 		// See if we are waiting for the reader module to finish resetting
@@ -1095,37 +1169,15 @@ public class CirrusII {
 			}
 		}
 
-		// Send tag info to the Gateway or command line when in test mode
-		if (pingTagList) {
-			synchronized(tagList_ping) {
-				pingTagList = false;
-				if (!tagList_ping.isEmpty()) {
-					led.set(LedControl.Color.Lime, LedControl.BlinkState.FastBlink);
-					if (testModeInventory) {
-						printTagListData(tagList_ping);
-					} else {
-						buildTagDatabase(tagList_ping);
-					}
-					tagList_ping.clear();
-				} else {
-					led.set(LedControl.Color.Green, LedControl.BlinkState.Constant);
-				}
-			}
-		} else {
-			synchronized(tagList_pong) {
-				pingTagList = true;
-				if (!tagList_pong.isEmpty()) {
-					led.set(LedControl.Color.Lime, LedControl.BlinkState.FastBlink);
-					if (testModeInventory) {
-						printTagListData(tagList_pong);
-					} else {
-						buildTagDatabase(tagList_pong);
-					}
-					tagList_pong.clear();
-				} else {
-					led.set(LedControl.Color.Green, LedControl.BlinkState.Constant);
-				}
-			}
+		// Update the LED state
+		updateVisualIndicator();
+		// Reset the tag present flag
+		tagPresent = false;
+		// Age the tag events
+		try {
+			ageTagEvents();
+		} catch (NullPointerException npe) {
+			log.makeEntry("Unable to age tag database\n" + npe.toString(), Log.Level.Error);
 		}
 	}
 	
@@ -1184,6 +1236,27 @@ public class CirrusII {
 	}
 	
 	/** 
+	 * updateStatistics<P>
+	 * This method writs statistics to a file.
+	 * @throws Exception 
+	 */
+	private void updateStatistics() throws Exception {
+
+		numberOfUnique = tagDatabase.size();
+
+		BufferedWriter bw = null;
+		bw = new BufferedWriter(new FileWriter("./statistics.txt", false));
+
+		bw.write("upTimeInSeconds  = " + ticTimerCount + "\n");
+		bw.write("numberOfUniques  = " + numberOfUnique + "\n");
+		bw.write("numberOfUploads  = " + numberOfUploads + "\n");
+		bw.write("numberOfTriggers = " + numberOfTriggers + "\n");
+		bw.write("waitingForCamera = " + !camera.isReady() + "\n");
+		bw.write("currentRfidState = " + rfidState.toString() + "\n");
+		bw.close();
+	}
+	
+	/** 
 	 * parseConfigFile<P>
 	 * This method parses the config file.
 	 * @throws IOException 
@@ -1218,16 +1291,22 @@ public class CirrusII {
 				} else if (currentLine.startsWith("DEVICE_ID") && (st.length >= 2)) {
 					this.deviceId = currentLine.substring(10); // everything after DEVICE_ID
 		        	System.out.println("DEVICE_ID = " + deviceId);
+				} else if (currentLine.startsWith("EPC_FIRST") && (st.length == 2)) {
+					this.epcFirst = Integer.parseInt(st[1]);
+				} else if (currentLine.startsWith("EPC_LAST") && (st.length == 2)) {
+					this.epcLast = Integer.parseInt(st[1]);
+				} else if (currentLine.startsWith("SHOTS_PER_TRIGGER") && (st.length == 2)) {
+					this.shotsPerTrigger = Integer.parseInt(st[1]);
+				} else if (currentLine.startsWith("TRIGGERS_PER_EVENT") && (st.length == 2)) {
+					this.triggersPerEvent = Integer.parseInt(st[1]);
+				} else if (currentLine.startsWith("EVENT_TIMEOUT_SEC") && (st.length == 2)) {
+					this.eventTimeout_sec = Integer.parseInt(st[1]);
 				} else if (currentLine.startsWith("LATITUDE") && (st.length == 2)) {
 					this.latitude = Double.parseDouble(st[1]);
 				} else if (currentLine.startsWith("LONGITUDE") && (st.length == 2)) {
 					this.longitude = Double.parseDouble(st[1]);
 				} else if (currentLine.startsWith("RFID_PROFILE") && (st.length == 2)) {
 					this.profileFilename = st[1];
-				} else if (currentLine.startsWith("MOTION_THRESHOLD") && (st.length == 2)) {
-					this.motionThreshold = Integer.parseInt(st[1]);
-//				} else if (currentLine.startsWith("AGE_THRESHOLD") && (st.length == 2)) {
-//					this.ageThreshold = Integer.parseInt(st[1]);
 				} else if (currentLine.startsWith("LOG_FILENAME") && (st.length == 2)) {
 					logFilename = st[1];
 				} else if (currentLine.startsWith("SERIAL_DEBUG") && (st.length == 2)) {
@@ -1295,34 +1374,8 @@ public class CirrusII {
 		System.out.println( "Unique Tag Count = " + epcs.size() );
 		for (String epc: epcs) {
 			TagData tagData = tagDatabase.get(epc);
-			System.out.println( "EPC = " + tagData.epc + ", Port = " + tagData.antPort + ", RSSI = " + (tagData.rssi/10) );
+			System.out.println( "EPC = " + tagData.epc );
 		}
-	}
-	
-	/** 
-	 * printTagListData<P>
-	 * This method prints the Inventory Tag Data.
-	 * @param tagList An Array of TagData objects.
-	 */
-	private void printTagListData( ArrayList<TagData> tagList ) {
-		// Iterate through the entire ArrayList of tags
-		Integer tagCount = tagList.size();
-		TagData tagData = null, oldData = null;
-		for (int i = 0; i < tagCount; i++) {
-			tagData = tagList.get(i);
-			if (tagData.epc != null) {
-				oldData = tagDatabase.get(tagData.epc);
-				if (oldData == null) {
-					tagData.newTag = true;
-					tagDatabase.put(tagData.epc, tagData);
-				} else {
-					oldData.update(tagData, motionThreshold);
-					tagDatabase.put(tagData.epc, oldData);
-				}
-			}
-		}
-		// Extract the values of interest
-		System.out.println( "Tag Reads = " + tagCount + ", CPU = " + bitData.getTotalCpuUsedInPercent() + "%");
 	}
 	
 	/** 
@@ -1630,7 +1683,6 @@ public class CirrusII {
 		// RFID Tag Protocol Commands Currently Supported
 		// See MTI Command Reference Manual Section 4.4
 		} else if ((command.startsWith("tag_inventory")) && (cli.length >= 4)) {
-			testModeInventory = true;
 			byte select = Byte.decode(cli[1]);
 			byte postMatch = Byte.decode(cli[2]);
 			byte guardMode = Byte.decode(cli[3]);

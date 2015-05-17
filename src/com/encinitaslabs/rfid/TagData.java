@@ -38,7 +38,7 @@ public class TagData {
 	public byte temp = 0x00;
 	public boolean crcValid = false;
 	public long timeStamp = 0;
-	public boolean newTag = false;
+	public int shotCount = 0;
 	public MotionState motionState = MotionState.Idle;
 
 	public enum MotionState {

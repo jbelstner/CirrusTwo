@@ -103,8 +103,9 @@ public class Sensors {
 	 * This method resets the possible latched state of motionDetected.
 	 * @return A Boolean.
 	 */
-	public void resetMotionDetector() {
+	public Boolean resetMotionDetector() {
 		motionDetected = false;
+		return motionDetected;
 	}
 
 	/** 

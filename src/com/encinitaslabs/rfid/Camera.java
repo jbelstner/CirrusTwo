@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.Date;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 
 /**
@@ -46,6 +47,7 @@ public class Camera {
 	private final String defaultImageName = "capt0000.jpg";
 
 	private LinkedBlockingQueue<String> pictureQueue = null;
+    private AtomicBoolean waiting = null;
 	private String make = null;
 	private String model = null;
 	private String version = null;
@@ -60,8 +62,18 @@ public class Camera {
 	public Camera ( LinkedBlockingQueue<String> pictureQueue_, Log logObject_ ) {
 		pictureQueue = pictureQueue_;
 		logObject = logObject_;		
+		waiting = new AtomicBoolean(false);
 	}
 	
+	/** 
+	 * isReady<P>
+	 * This method returns if the camera is ready.
+	 * @return A Boolean.
+	 */
+	public Boolean isReady() {
+		return !waiting.get();
+	}
+
 	/** 
 	 * summary<P>
 	 * This method executes a gphoto2 command.
@@ -139,48 +151,67 @@ public class Camera {
 	 * This method executes a gphoto2 command.
 	 * @throws IOException
 	 */
-	public void captureImageAndDownload( ) {
-		// Send the gphoto2 command
-		try {
-			Runtime.getRuntime().exec("gphoto2 --capture-image-and-download");
-			// Wait in this thread for the file to download
-			Thread waitForDownload = new Thread () {
-				public void run() {
-			        try {
-					    File file = new File(defaultImageName);
-					    while (!file.exists()) {
-					    	// Sit and spin
-					    }
-					    Long timeStamp = new Date().getTime();
-					    // Rename the file
-					    String newName = timeStamp + ".jpg";
-						Runtime.getRuntime().exec("mv " + defaultImageName + " " + newName);
-						Thread.sleep(50);
-						// Notify the main CirrusII application
-						pictureQueue.put(newName);
-			        } catch(Exception e){
-		    			log( "Error waiting for file!\n" + e.toString(), Log.Level.Warning );
-			        }
-				}
-			};
-			waitForDownload.start();
-			
-		} catch (IOException e) {
-			log( "Unable to take a picture!\n" + e.toString(), Log.Level.Error );
+	public Boolean captureImageAndDownload( String tagInfo, Integer shotsPerTrigger ) {
+		final String subEpc = tagInfo;
+		boolean success = true;
+		// Check if we can do this
+		if (waiting.compareAndSet(false, true)) {
+			try {
+				// Send the gphoto2 command
+				Runtime.getRuntime().exec("gphoto2 --capture-image-and-download");
+				// Wait in this thread for the file to download
+				Thread waitForDownload = new Thread () {
+					public void run() {
+				        try {
+						    File file = new File(defaultImageName);
+						    int loops = 0;
+						    while (!file.exists()) {
+					    		loops++;
+					    		if (loops == Integer.MAX_VALUE) { break; }
+						    }
+						    // Do only if the file exists
+						    if (file.exists()) {
+							    Long timeStamp = new Date().getTime();
+							    // Rename the file
+							    String newName = subEpc + "-" + timeStamp + ".jpg";
+								Runtime.getRuntime().exec("mv " + defaultImageName + " " + newName);
+								Thread.sleep(100);
+								// Pass to the main CirrusII application for upload
+								pictureQueue.put(newName);
+						    }
+				        } catch(Exception e){
+			    			log( "Error waiting for file!\n" + e.toString(), Log.Level.Warning );
+				        }
+						// Ready to take a new picture
+						waiting.set(false);
+					}
+				};
+				waitForDownload.start();
+				
+			} catch (IOException e) {
+				log( "Unable to take a picture!\n" + e.toString(), Log.Level.Error );
+				waiting.set(false);
+				success = false;
+			}
+		} else {
+			success = false;
 		}
+		return success;
 	}
 
 	/** 
 	 * captureImage<P>
 	 * This method executes a gphoto2 command.
-	 * @throws IOException
 	 */
 	public void captureImage() {
-		// Send the gphoto2 command
-		try {
-			Runtime.getRuntime().exec("gphoto2 --capture-image");
-		} catch (IOException e) {
-			log( "Unable to take a picture!\n" + e.toString(), Log.Level.Error );
+		// Check if we can do this
+		if (waiting.get() == false) {
+			try {
+				// Send the gphoto2 command
+				Runtime.getRuntime().exec("gphoto2 --capture-image");
+			} catch (IOException e) {
+				log( "Unable to take a picture!\n" + e.toString(), Log.Level.Error );
+			}
 		}
 	}
 
