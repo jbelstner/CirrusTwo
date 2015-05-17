@@ -113,7 +113,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2-0.8.4";
+	private static final String apiVersionString = "C2-0.8.5";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;

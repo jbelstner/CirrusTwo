@@ -167,7 +167,7 @@ public class Camera {
 						    int loops = 0;
 						    while (!file.exists()) {
 					    		loops++;
-					    		if (loops == Integer.MAX_VALUE) { break; }
+					    		if (loops == 0x3FFFF) { break; } // ~ 1 minute
 						    }
 						    // Do only if the file exists
 						    if (file.exists()) {
@@ -175,9 +175,11 @@ public class Camera {
 							    // Rename the file
 							    String newName = subEpc + "-" + timeStamp + ".jpg";
 								Runtime.getRuntime().exec("mv " + defaultImageName + " " + newName);
-								Thread.sleep(100);
+								Thread.sleep(250);
 								// Pass to the main CirrusII application for upload
 								pictureQueue.put(newName);
+						    } else {
+				    			log( "Timeout waiting for file download!", Log.Level.Warning );
 						    }
 				        } catch(Exception e){
 			    			log( "Error waiting for file!\n" + e.toString(), Log.Level.Warning );
