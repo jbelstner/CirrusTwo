@@ -203,7 +203,8 @@ public class CirrusII {
 		fotaflo.setLogObject(log);
 		fotaflo.setCredentials(username, password);
 		fotaflo.setUploadUrl(photoUrl);
-		camera.enablePower(true);
+		// Initially turn the power off
+		camera.enablePower(false);
 
 		// SERIAL PORT INITIALIZATION
 		serialComms = new SerialComms(serialRspQueue, serialDebug);
@@ -1101,8 +1102,11 @@ public class CirrusII {
 	private void processTicTimer() {
 		// Autonomous power on things for Fotaflo
 		if (ticTimerCount == 0) {
+			// Turn on the camera
+			camera.enablePower(true);
 			// Upload any leftover pictures from last time
 			queueLeftoverFiles();
+		} else if (ticTimerCount == 1) {
 			if (!useCLI) {
 				try {
 					autoRepeat = true;

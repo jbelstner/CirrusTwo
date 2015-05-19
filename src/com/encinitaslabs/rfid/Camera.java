@@ -45,8 +45,6 @@ public class Camera {
 	private final String version_s = "  Version: ";
 	private final String serialNumber_s = "  Serial Number: ";
 	private final String defaultImageName = "capt0000.jpg";
-	private final Integer MAX_TIMEOUTS = 3;
-
 	private LinkedBlockingQueue<String> pictureQueue = null;
     private AtomicBoolean waiting = null;
 	private String make = null;
@@ -54,9 +52,7 @@ public class Camera {
 	private String version = null;
 	private String serialNumber = null;
 	private Log logObject = null;
-	private Integer timeoutCounter = 0;
-    
-    
+	
 	/** 
 	 * Camera<P>
 	 * Class Constructor
@@ -200,17 +196,13 @@ public class Camera {
 								Thread.sleep(250);
 								// Pass to the main CirrusII application for upload
 								pictureQueue.put(newName);
-								timeoutCounter = 0;
 						    } else {
 				    			log( "Timeout waiting for file download!", Log.Level.Warning );
-				    			// Cycle power on the camera if necessary
-				    			if (++timeoutCounter > MAX_TIMEOUTS) {
-				    				enablePower(false);
-									Thread.sleep(1000);
-				    				enablePower(true);
-									Thread.sleep(1000);
-									timeoutCounter = 0;
-				    			}
+				    			// Cycle power on the camera
+			    				enablePower(false);
+								Thread.sleep(1000);
+			    				enablePower(true);
+								Thread.sleep(2000);
 						    }
 				        } catch(Exception e){
 			    			log( "Error waiting for file!\n" + e.toString(), Log.Level.Warning );
