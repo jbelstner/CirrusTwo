@@ -5,6 +5,9 @@
 # Put your custom commands here that should be executed once
 # the system init finished. By default this file does nothing.
 
+# Dial Verizon                                                                  
+#/opt/encinitaslabs/rfid/start_ppp_modem.sh &
+
 # Start the MeshCentral Agent
 /usr/local/mesh/mesh_linux start
 
