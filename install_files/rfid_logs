@@ -1,0 +1,4 @@
+#!/bin/bash
+
+tail -f /opt/encinitaslabs/rfid/CirrusII.log
+

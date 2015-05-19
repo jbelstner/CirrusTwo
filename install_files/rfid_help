@@ -1,0 +1,11 @@
+#!/bin/bash
+
+clear
+echo "The following RFID commands are available..."
+echo " "
+echo "rfid_help  - Displays this menu."
+echo "rfid_stop  - Stop the RFID background process."
+echo "rfid_start - Start the RFID background process."
+echo "rfid_logs  - Realtime log entries (Ctrl-C to exit)."
+echo "rfid_stats - Displays snapshot of current statistics."
+echo " "
