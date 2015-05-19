@@ -45,6 +45,7 @@ public class Camera {
 	private final String version_s = "  Version: ";
 	private final String serialNumber_s = "  Serial Number: ";
 	private final String defaultImageName = "capt0000.jpg";
+	private final Integer MAX_TIMEOUTS = 3;
 
 	private LinkedBlockingQueue<String> pictureQueue = null;
     private AtomicBoolean waiting = null;
@@ -53,6 +54,7 @@ public class Camera {
 	private String version = null;
 	private String serialNumber = null;
 	private Log logObject = null;
+	private Integer timeoutCounter = 0;
     
     
 	/** 
@@ -65,6 +67,26 @@ public class Camera {
 		waiting = new AtomicBoolean(false);
 	}
 	
+	/** 
+	 * enablePower<P>
+	 * This method returns if we successfully enabled the camera power.
+	 * The output is active low.
+	 * @return A Boolean.
+	 */
+	public Boolean enablePower(Boolean enable) {
+		try {
+			if (enable) {
+				Runtime.getRuntime().exec("./camera_power.sh 0");
+			} else {
+				Runtime.getRuntime().exec("./camera_power.sh 1");				
+			}
+			return true;
+		} catch (IOException e) {
+			log( "Unable to enable camera power!", Log.Level.Error );
+			return false;
+		}
+	}
+
 	/** 
 	 * isReady<P>
 	 * This method returns if the camera is ready.
@@ -178,8 +200,17 @@ public class Camera {
 								Thread.sleep(250);
 								// Pass to the main CirrusII application for upload
 								pictureQueue.put(newName);
+								timeoutCounter = 0;
 						    } else {
 				    			log( "Timeout waiting for file download!", Log.Level.Warning );
+				    			// Cycle power on the camera if necessary
+				    			if (++timeoutCounter > MAX_TIMEOUTS) {
+				    				enablePower(false);
+									Thread.sleep(1000);
+				    				enablePower(true);
+									Thread.sleep(1000);
+									timeoutCounter = 0;
+				    			}
 						    }
 				        } catch(Exception e){
 			    			log( "Error waiting for file!\n" + e.toString(), Log.Level.Warning );

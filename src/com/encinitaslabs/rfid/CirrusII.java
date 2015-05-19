@@ -105,7 +105,7 @@ public class CirrusII {
 	private String location = null;
 	private Integer epcLast = null;
 	private Integer epcFirst = null;
-	private Integer shotsPerTrigger = 1;  // fixed for now
+	private Integer shotsPerTrigger = 1;  // fixed at 1 for now
 	private Integer triggersPerEvent = 3;
 	private Integer eventTimeout_sec = 30;
 	// Statistics
@@ -113,7 +113,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2-0.8.5";
+	private static final String apiVersionString = "C2-0.8.6";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -203,6 +203,7 @@ public class CirrusII {
 		fotaflo.setLogObject(log);
 		fotaflo.setCredentials(username, password);
 		fotaflo.setUploadUrl(photoUrl);
+		camera.enablePower(true);
 
 		// SERIAL PORT INITIALIZATION
 		serialComms = new SerialComms(serialRspQueue, serialDebug);
