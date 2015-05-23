@@ -30,10 +30,10 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+
 import com.encinitaslabs.rfid.cmd.CmdAntennaPortConf;
 import com.encinitaslabs.rfid.cmd.CmdHead;
 import com.encinitaslabs.rfid.cmd.CmdReaderModuleFirmwareAccess;
@@ -103,17 +103,19 @@ public class CirrusII {
 	private String photoUrl = null;
 	private String deviceId = null;
 	private String location = null;
+	private String imageFormat = "SmallNormal";
+	private String shotsPerTrigger = "1";
 	private Integer epcLast = null;
 	private Integer epcFirst = null;
-	private Integer shotsPerTrigger = 1;  // fixed at 1 for now
 	private Integer triggersPerEvent = 3;
-	private Integer eventTimeout_sec = 30;
+	private Integer triggerInterval_sec = 5;
+	private Integer eventTimeout_sec = 300;
 	// Statistics
 	private Integer numberOfTriggers = 0;
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2-0.8.6";
+	private static final String apiVersionString = "C2-0.8.8";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -205,6 +207,8 @@ public class CirrusII {
 		fotaflo.setUploadUrl(photoUrl);
 		// Initially turn the power off
 		camera.enablePower(false);
+		camera.setImageFormat(imageFormat);
+		camera.setShotsPerTrigger(shotsPerTrigger);
 
 		// SERIAL PORT INITIALIZATION
 		serialComms = new SerialComms(serialRspQueue, serialDebug);
@@ -538,8 +542,6 @@ public class CirrusII {
 				System.out.println(tagData.epc);
 				return;
 			}
-			// Add the time stamp
-			tagData.timeStamp = new Date().getTime();
 			TagData oldData = tagEvents.get(tagData.epc);
 			boolean tryToTakePhoto = false;
 			// Tags not in the event database cause a photo
@@ -548,17 +550,18 @@ public class CirrusII {
 				oldData = tagData;
 			}
 			// Tags in the event database that have shots left cause a photo
-			if (oldData.shotCount < triggersPerEvent) {
+			if ((oldData.shotCount < triggersPerEvent) && (oldData.triggerCountDown_sec == 0)) {
 				tryToTakePhoto = true;
 			}
 			// If we should take photo, check if the camera is ready
 			if (tryToTakePhoto && camera.isReady()) {
 				// Trigger the camera
-				if (camera.captureImageAndDownload(oldData.epc.substring(epcFirst, epcLast), shotsPerTrigger)) {
+				if (camera.captureImageAndDownload(oldData.epc.substring(epcFirst, epcLast))) {
 					numberOfTriggers++;
 					// Update the event database
 					oldData.shotCount++;				
-					oldData.timeStamp = tagData.timeStamp;
+					oldData.eventCountDown_sec = eventTimeout_sec;
+					oldData.triggerCountDown_sec = triggerInterval_sec;
 					tagEvents.put(oldData.epc, oldData);
 					log.makeEntry(oldData.epc + " added to tagEvent", Log.Level.Information);
 				}
@@ -573,13 +576,13 @@ public class CirrusII {
 	 * This method ages the tag database based on EVENT_TIMEOUT_SEC
 	 */
 	private void ageTagEvents( ) throws NullPointerException {
-		// Get the current time
-		Long timeStamp = new Date().getTime();
 		// Iterate through the entire ArrayList of tags
 		Set<String> epcs = tagEvents.keySet();
 		for (String epc: epcs) {
 			TagData tagData = tagEvents.get(epc);
-			if ((timeStamp - tagData.timeStamp) > (eventTimeout_sec * 1000)) {
+			if (tagData.triggerCountDown_sec > 0) { tagData.triggerCountDown_sec--; }
+			if (tagData.eventCountDown_sec > 0) { tagData.eventCountDown_sec--; }
+			if (tagData.eventCountDown_sec == 0 ) {
 				log.makeEntry(epc + " removed from tagEvents", Log.Level.Information);
 				tagEvents.remove(epc);
 			}
@@ -1048,10 +1051,11 @@ public class CirrusII {
 		} else if (method.equalsIgnoreCase("capture_image")) {
 			TagData tagData = new TagData();
 			tagData.epc = "1234567";
+			tagData.eventCountDown_sec = eventTimeout_sec;
 			tagPresent = true;
 			tagEvents.put(tagData.epc, tagData);
 			tagDatabase.put(tagData.epc, tagData);
-			camera.captureImageAndDownload(tagData.epc, shotsPerTrigger);
+			camera.captureImageAndDownload(tagData.epc);
 		} else if (method.equalsIgnoreCase("show_database")) {
 			printTagDatabase();
 		} else if (method.equalsIgnoreCase("flush_database")) {
@@ -1106,7 +1110,8 @@ public class CirrusII {
 			camera.enablePower(true);
 			// Upload any leftover pictures from last time
 			queueLeftoverFiles();
-		} else if (ticTimerCount == 1) {
+		} else if (ticTimerCount == 3) {
+			camera.updateImageFormat();
 			if (!useCLI) {
 				try {
 					autoRepeat = true;
@@ -1300,10 +1305,14 @@ public class CirrusII {
 					this.epcFirst = Integer.parseInt(st[1]);
 				} else if (currentLine.startsWith("EPC_LAST") && (st.length == 2)) {
 					this.epcLast = Integer.parseInt(st[1]);
+				} else if (currentLine.startsWith("IMAGE_FORMAT") && (st.length == 2)) {
+					this.imageFormat = st[1];
 				} else if (currentLine.startsWith("SHOTS_PER_TRIGGER") && (st.length == 2)) {
-					this.shotsPerTrigger = Integer.parseInt(st[1]);
+					this.shotsPerTrigger = st[1];
 				} else if (currentLine.startsWith("TRIGGERS_PER_EVENT") && (st.length == 2)) {
 					this.triggersPerEvent = Integer.parseInt(st[1]);
+				} else if (currentLine.startsWith("TRIGGER_INTERVAL_SEC") && (st.length == 2)) {
+					this.triggerInterval_sec = Integer.parseInt(st[1]);
 				} else if (currentLine.startsWith("EVENT_TIMEOUT_SEC") && (st.length == 2)) {
 					this.eventTimeout_sec = Integer.parseInt(st[1]);
 				} else if (currentLine.startsWith("LATITUDE") && (st.length == 2)) {

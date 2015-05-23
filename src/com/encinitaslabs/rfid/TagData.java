@@ -37,7 +37,8 @@ public class TagData {
 	public int freqKHz = 0;
 	public byte temp = 0x00;
 	public boolean crcValid = false;
-	public long timeStamp = 0;
+	public int triggerCountDown_sec = 0;
+	public int eventCountDown_sec = 0;
 	public int shotCount = 0;
 	public MotionState motionState = MotionState.Idle;
 
@@ -61,8 +62,6 @@ public class TagData {
 	 * Sets the motion bit is the change in RSSI exceeds the threshold
 	 */
 	public void update(TagData tagData, int motionThresholdDb) {
-		// Update the last read on
-		this.timeStamp = tagData.timeStamp;
 		// Look for possible motion
 		boolean motionDetect = false;
 		if (this.rssi > tagData.rssi) {
@@ -100,7 +99,7 @@ public class TagData {
 	    if (obj == null) {
 	        return false;
 	    }
-	    if ((obj instanceof InventoryData) == false) {
+	    if ((obj instanceof TagData) == false) {
 	        return false;
 	    }
 	    try {

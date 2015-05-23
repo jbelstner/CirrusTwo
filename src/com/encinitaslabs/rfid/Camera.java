@@ -44,7 +44,7 @@ public class Camera {
 	private final String model_s = "Model: ";
 	private final String version_s = "  Version: ";
 	private final String serialNumber_s = "  Serial Number: ";
-	private final String defaultImageName = "capt0000.jpg";
+	private final String defaultName = "capt000";
 	private LinkedBlockingQueue<String> pictureQueue = null;
     private AtomicBoolean waiting = null;
 	private String make = null;
@@ -52,7 +52,32 @@ public class Camera {
 	private String version = null;
 	private String serialNumber = null;
 	private Log logObject = null;
+	private ImageFormat imageFormat = ImageFormat.SmallNormal;
+	private String shotsPerTrigger = "1";
 	
+	public enum ImageFormat {
+		LargeFine((String)"0"),
+		LargeNormal((String)"1"),
+		MediumFine((String)"2"),
+		MediumNormal((String)"3"),
+		SmallFine((String)"4"),
+		SmallNormal((String)"5"),
+		Small((String)"6"),
+		Tiny((String)"7"),
+		RawLarge((String)"8"),
+		Raw((String)"9");
+		
+		private String bImageFormat;
+		
+		ImageFormat(String bImageFormat_) {
+			this.bImageFormat = bImageFormat_;
+		}
+
+		public String getValue() {
+			return bImageFormat;
+		}
+	}
+
 	/** 
 	 * Camera<P>
 	 * Class Constructor
@@ -165,57 +190,18 @@ public class Camera {
 	}
 
 	/** 
-	 * captureImageAndDownload<P>
+	 * captureImage<P>
 	 * This method executes a gphoto2 command.
-	 * @throws IOException
 	 */
-	public Boolean captureImageAndDownload( String tagInfo, Integer shotsPerTrigger ) {
-		final String subEpc = tagInfo;
+	public Boolean captureImage() {
 		boolean success = true;
 		// Check if we can do this
-		if (waiting.compareAndSet(false, true)) {
+		if (waiting.get() == false) {
 			try {
 				// Send the gphoto2 command
-				Runtime.getRuntime().exec("gphoto2 --capture-image-and-download");
-				// Wait in this thread for the file to download
-				Thread waitForDownload = new Thread () {
-					public void run() {
-				        try {
-						    File file = new File(defaultImageName);
-						    int loops = 0;
-						    while (!file.exists()) {
-					    		loops++;
-					    		if (loops == 0x3FFFF) { break; } // ~ 1 minute
-						    }
-						    // Do only if the file exists
-						    if (file.exists()) {
-							    Long timeStamp = new Date().getTime();
-							    // Rename the file
-							    String newName = subEpc + "-" + timeStamp + ".jpg";
-								Runtime.getRuntime().exec("mv " + defaultImageName + " " + newName);
-								Thread.sleep(250);
-								// Pass to the main CirrusII application for upload
-								pictureQueue.put(newName);
-						    } else {
-				    			log( "Timeout waiting for file download!", Log.Level.Warning );
-				    			// Cycle power on the camera
-			    				enablePower(false);
-								Thread.sleep(1000);
-			    				enablePower(true);
-								Thread.sleep(2000);
-						    }
-				        } catch(Exception e){
-			    			log( "Error waiting for file!\n" + e.toString(), Log.Level.Warning );
-				        }
-						// Ready to take a new picture
-						waiting.set(false);
-					}
-				};
-				waitForDownload.start();
-				
+				Runtime.getRuntime().exec("gphoto2 --capture-image");
 			} catch (IOException e) {
 				log( "Unable to take a picture!\n" + e.toString(), Log.Level.Error );
-				waiting.set(false);
 				success = false;
 			}
 		} else {
@@ -225,19 +211,121 @@ public class Camera {
 	}
 
 	/** 
-	 * captureImage<P>
+	 * captureImageAndDownload<P>
+	 * This method executes a gphoto2 command.
+	 * @throws IOException
+	 */
+	public Boolean captureImageAndDownload( String tagInfo ) {
+		final String subEpc = tagInfo;
+		boolean success = true;
+		// Check if we can do this
+		if (waiting.compareAndSet(false, true)) {
+			try {
+				// Send the gphoto2 command
+				Runtime.getRuntime().exec("gphoto2 --capture-image-and-download -F=" + shotsPerTrigger + " -I=1");
+				// Wait in this thread for the file to download
+				Thread waitForDownload = new Thread () {
+					public void run() {
+				        try {
+				        	for (Integer i = 0; i < Integer.parseInt(shotsPerTrigger); i++) {
+							    String fileName = defaultName + i + ".jpg";
+							    File file = new File(fileName);
+							    int loops = 0;
+							    while (!file.exists()) {
+						    		loops++;
+						    		if (loops == 0xFFFF) { break; } // ~ 15 seconds
+							    }
+							    // Do only if the file exists
+							    if (file.exists()) {
+								    Long timeStamp = new Date().getTime();
+								    // Rename the file
+								    String newName = subEpc + "-" + timeStamp + ".jpg";
+									Runtime.getRuntime().exec("mv " + fileName + " " + newName);
+									Thread.sleep(250);
+									// Pass to the main CirrusII application for upload
+									pictureQueue.put(newName);
+							    } else {
+					    			log( "Timeout waiting for file download!", Log.Level.Warning );
+					    			// Cycle power on the camera
+				    				enablePower(false);
+									Thread.sleep(1000);
+				    				enablePower(true);
+									Thread.sleep(2000);
+							    }				        		
+				        	}
+				        } catch(Exception e){
+			    			log( "Error waiting for file!\n" + e.toString(), Log.Level.Warning );
+				        }
+						// Ready to take a new picture
+						waiting.set(false);
+					}
+				};
+				waitForDownload.start();
+				success = true;
+				
+			} catch (IOException e) {
+				log( "Unable to take a picture!\n" + e.toString(), Log.Level.Error );
+				waiting.set(false);
+			}
+		}
+		return success;
+	}
+
+	/** 
+	 * setImageFormat<P>
 	 * This method executes a gphoto2 command.
 	 */
-	public void captureImage() {
+	public void setImageFormat(String format) {
+		if (format != null) {
+			try {
+				imageFormat = ImageFormat.valueOf(format);
+	        } catch(IllegalArgumentException iae) {
+	        	imageFormat = ImageFormat.SmallNormal;
+	        }
+		}
+	}
+
+	/** 
+	 * setImageFormat<P>
+	 * This method executes a gphoto2 command.
+	 */
+	public void setImageFormat(ImageFormat format) {
+		imageFormat = format;
+	}
+
+	/** 
+	 * updateImageFormat<P>
+	 * This method executes a gphoto2 command.
+	 */
+	public Boolean updateImageFormat( ) {
+		boolean success = false;
 		// Check if we can do this
 		if (waiting.get() == false) {
 			try {
 				// Send the gphoto2 command
-				Runtime.getRuntime().exec("gphoto2 --capture-image");
+				Runtime.getRuntime().exec("gphoto2 --set-config /main/imgsettings/imageformat=" + imageFormat.getValue());
+				success = true;
 			} catch (IOException e) {
-				log( "Unable to take a picture!\n" + e.toString(), Log.Level.Error );
+				log( "Unable to update the image format!\n" + e.toString(), Log.Level.Error );
 			}
 		}
+		return success;
+	}
+
+	/** 
+	 * setShotsPerTrigger<P>
+	 * This method executes a gphoto2 command.
+	 */
+	public Boolean setShotsPerTrigger(String shots_) {
+		boolean success = false;
+		if (shots_ != null) {
+			int shots = Integer.parseInt(shots_);
+			if ((shots > 0) && (shots < 4)) {
+				shotsPerTrigger = shots_;							
+				success = true;
+			}
+		}
+		return success;
 	}
 
 	/** 
