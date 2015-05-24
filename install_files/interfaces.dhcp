@@ -15,4 +15,4 @@ wpa-roam /etc/wpa_supplicant.conf
 iface default inet dhcp
 
 # USB Cellular Dongle
-auto ppp0
+#auto ppp0

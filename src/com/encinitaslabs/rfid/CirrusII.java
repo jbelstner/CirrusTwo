@@ -115,7 +115,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2-0.8.8";
+	private static final String apiVersionString = "C2-0.8.9";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -1105,12 +1105,12 @@ public class CirrusII {
 	 */
 	private void processTicTimer() {
 		// Autonomous power on things for Fotaflo
-		if (ticTimerCount == 0) {
+		if (ticTimerCount == 1) {
 			// Turn on the camera
 			camera.enablePower(true);
 			// Upload any leftover pictures from last time
 			queueLeftoverFiles();
-		} else if (ticTimerCount == 3) {
+		} else if (ticTimerCount == 7) {
 			camera.updateImageFormat();
 			if (!useCLI) {
 				try {
