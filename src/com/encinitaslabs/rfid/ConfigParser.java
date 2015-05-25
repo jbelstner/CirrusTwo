@@ -50,10 +50,8 @@ public class ConfigParser {
 		try {
 			while ((currentLine = br.readLine()) != null) {
 				String st[] = currentLine.split(" ");
-				if (currentLine.startsWith("#")) {
-					// Do nothing as this is a comment
-				} else if (st.length >= 2){
-					config.put(st[0], currentLine.substring(st[0].length() + 1));
+				if (!currentLine.startsWith("#") && st.length >= 2) {
+					this.config.put(st[0], currentLine.substring(st[0].length() + 1));
 				}
 			}
 		} catch (Exception e) {

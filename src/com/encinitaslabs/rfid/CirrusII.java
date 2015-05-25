@@ -33,7 +33,6 @@ import java.util.ArrayList;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
-
 import com.encinitaslabs.rfid.cmd.CmdAntennaPortConf;
 import com.encinitaslabs.rfid.cmd.CmdHead;
 import com.encinitaslabs.rfid.cmd.CmdReaderModuleFirmwareAccess;
@@ -53,6 +52,7 @@ import com.encinitaslabs.rfid.utils.Crc16;
  * @author Encinitas Laboratories, Inc.
  * @version 0.1
  */
+@SuppressWarnings("unused")
 public class CirrusII {
 	
 	public enum RfidState {
@@ -130,6 +130,7 @@ public class CirrusII {
 	private Log log = null;
 	private SelfTest bitData = null;
 	private Sensors sensors = null;
+	
 	private boolean motionFlag = false;
 	private boolean errorFlag = false;
 	// Timeout and retry parameters
