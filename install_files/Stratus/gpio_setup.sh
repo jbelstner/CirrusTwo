@@ -39,7 +39,7 @@ echo -n "13" > /sys/class/gpio/unexport
 
 echo -n "14" > /sys/class/gpio/export
 echo -n "out" > /sys/class/gpio/gpio14/direction
-echo -n "0" > /sys/class/gpio/gpio14/value
+echo -n "1" > /sys/class/gpio/gpio14/value
 echo -n "14" > /sys/class/gpio/unexport
 
 # Configure gpio7 as Stratus Motion Sensor Input
