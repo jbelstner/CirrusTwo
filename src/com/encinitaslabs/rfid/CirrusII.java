@@ -1461,7 +1461,7 @@ public class CirrusII {
 			if (cmd != null) { serialCmdQueue.put(cmd); }
 			else { System.out.println("Invalid parameter or format for " + cli[0]); }
 			
-		} else if ((command.startsWith("write_banked_reg")) && (cli.length >= 3)) {
+		} else if ((command.startsWith("write_banked_reg")) && (cli.length >= 4)) {
 			short address = Short.decode(cli[1]);
 			short bank = Short.decode(cli[2]);
 			int value = Integer.decode(cli[3]);
@@ -1469,7 +1469,7 @@ public class CirrusII {
 			if (cmd != null) { serialCmdQueue.put(cmd); }
 			else { System.out.println("Invalid parameter or format for " + cli[0]); }
 			
-		} else if ((command.startsWith("read_banked_reg")) && (cli.length >= 2)) {
+		} else if ((command.startsWith("read_banked_reg")) && (cli.length >= 3)) {
 			short address = Short.decode(cli[1]);
 			short bank = Short.decode(cli[2]);
 			byte[] cmd = llcs.readRegister(address, bank);
