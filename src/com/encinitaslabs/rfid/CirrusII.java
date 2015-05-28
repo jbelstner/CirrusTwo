@@ -115,7 +115,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2-0.8.9";
+	private static final String apiVersionString = "C2-0.9.0";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -138,6 +138,7 @@ public class CirrusII {
 	private final Integer selfTestTime = 7;
 	private final Integer readerResetCount_tics = 10;
 	private Integer readerResetCounter = 0;
+	private Integer readerDelayCounter = 0;
 	private Double latitude = 0.0;
 	private Double longitude = 0.0;
 	
@@ -508,11 +509,14 @@ public class CirrusII {
 		} else if (responseType.contains("End")) {
 			// See if we need to continue to read tags
 			if (autoRepeat) {
-				try {
-					sendInventoryRequest();
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
-				}				
+				readerDelayCounter = profile.getDefaultDelayTime() / ticTime_ms;
+				if (readerDelayCounter == 0) {
+					try {
+						sendInventoryRequest();
+					} catch (InterruptedException e) {
+						log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+					}									
+				}
 			}
 			// Return to idle state
     		setRfidState(RfidState.Idle);
@@ -1170,12 +1174,25 @@ public class CirrusII {
 		// See if we are waiting for the reader module to finish resetting
 		if ((rfidState == RfidState.WaitingForReset) && (++readerResetCounter >= readerResetCount_tics)) {
 			readerResetCounter = 0;
+			ticTimerCount = 0;
 			setRfidState(RfidState.Idle);
 			try {
 				initializeRfidModuleSettings();
 				log.makeEntry("Autonomous reset complete", Log.Level.Information);
 			} catch (InterruptedException e) {
 				log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
+			}
+		}
+		
+		// See if we are waiting for the delay counter to count down
+		if (readerDelayCounter > 0) {
+			// Decrement the delay counter and start the next inventory when zero
+			if ((--readerDelayCounter == 0) && (autoRepeat)) {
+				try {
+					sendInventoryRequest();
+				} catch (InterruptedException e) {
+					log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+				}
 			}
 		}
 
