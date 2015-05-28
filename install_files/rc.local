@@ -8,6 +8,9 @@
 # Dial Verizon                                                                  
 #/opt/encinitaslabs/rfid/start_ppp_modem.sh &
 
+# Synchronize with the timer server
+/etc/init.d/ntp start
+
 # Start the MeshCentral Agent
 /usr/local/mesh/mesh_linux start
 
