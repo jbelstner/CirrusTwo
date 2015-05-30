@@ -42,6 +42,7 @@ import com.encinitaslabs.rfid.cmd.Llcs;
 import com.encinitaslabs.rfid.cmd.MtiCmd;
 import com.encinitaslabs.rfid.comms.SerialComms;
 import com.encinitaslabs.rfid.utils.Crc16;
+import java.util.HashMap;
 
 /**
  * CirrusII Object
@@ -184,9 +185,15 @@ public class CirrusII {
 		
 		// Parse the config file (if there is one)
 		antennaPorts = new ArrayList<AntennaPort>();
-		try {
+		/*try {
 			parseConfigFile(configFile);
 		} catch (IOException e1) {
+			System.out.println("No config file found, using defaults\n" + e1.toString());
+		}*/
+		try {
+			ConfigParser configuration = new ConfigParser(configFile);
+			setConfigOptions(configuration.config);
+		} catch (Exception e1) {
 			System.out.println("No config file found, using defaults\n" + e1.toString());
 		}
 		
@@ -352,7 +359,39 @@ public class CirrusII {
 			showTopLevelCommands();
 		}		
 	}
-
+	private void setConfigOptions (HashMap<String, String> config){
+		
+			if (config.get("COM_PORT") != null){this.rfidCommPort = config.get("COM_PORT");}
+			if (config.get("BAUD_RATE") != null) {this.rfidBaudRate = Integer.parseInt(config.get("BAUD_RATE"));}
+			if (config.get("MODULE_TYPE") != null) {this.moduleType =   config.get("MODULE_TYPE");}
+			if (config.get("NUM_PHYSICAL_PORTS") != null) {this.numPhysicalPorts =  Integer.parseInt(config.get("NUM_PHYSICAL_PORTS"));}
+			if (config.get("PHOTO_URL") != null ) {this.photoUrl = config.get("PHOTO_URL");}
+			if (config.get("USERNAME") != null) {this.username = config.get("USERNAME");}
+			if (config.get("PASSWORD") != null) {this.password = config.get("PASSWORD");}
+			if (config.get("LOCATION") != null) {this.location = config.get("LOCATION");}
+        	System.out.println("LOCATION = " + location);
+			if (config.get("DEVICE_ID") != null) {this.deviceId = config.get("DEVICE_ID");}
+        	System.out.println("DEVICE_ID = " + deviceId);
+			if (config.get("EPC_FIRST") != null) {this.epcFirst = Integer.parseInt(config.get("EPC_FIRST"));}
+			if (config.get("EPC_LAST") != null) {this.epcLast = Integer.parseInt(config.get("EPC_LAST"));}
+			if (config.get("IMAGE_FORMAT") != null) {this.imageFormat = config.get("IMAGE_FORMAT");}
+			if (config.get("SHOTS_PER_TRIGGER") != null) {this.shotsPerTrigger = config.get("SHOTS_PER_TRIGGER");}
+			if (config.get("TRIGGERS_PER_EVENT") != null) {this.triggersPerEvent = Integer.parseInt(config.get("TRIGGERS_PER_EVENT"));}
+			if (config.get("TRIGGER_INTERVAL_SEC") != null) {this.triggerInterval_sec = Integer.parseInt(config.get("TRIGGER_INTERVAL_SEC"));}
+			if (config.get("EVENT_TIMEOUT_SEC") != null) {this.eventTimeout_sec = Integer.parseInt(config.get("EVENT_TIMEOUT_SEC"));}
+			if (config.get("LATITUDE") != null) {this.latitude = Double.parseDouble(config.get("LATITUDE"));}
+			if (config.get("LONGITUDE") != null) {this.longitude = Double.parseDouble(config.get("LONGITUDE"));}
+			if (config.get("RFID_PROFILE") != null) {this.profileFilename = config.get("RFID_PROFILE");}
+			if (config.get("LOG_FILENAME") != null) {logFilename = config.get("LOG_FILENAME");}
+			if (config.get("SERIAL_DEBUG") != null) {serialDebug = Boolean.parseBoolean(config.get("SERIAL_DEBUG"));}
+		
+			try {
+				logLevel = Log.Level.valueOf(config.get("LOG_LEVEL"));
+	        } catch(IllegalArgumentException iae) {
+	        	System.out.println("Invalid log level in config file!");
+	        }
+	
+	}
 	/** 
 	 * requestReaderInformation<P>
 	 * This method requests Reader ID and FW version from the RFID module.
