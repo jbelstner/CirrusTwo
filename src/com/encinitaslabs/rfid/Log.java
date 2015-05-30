@@ -25,6 +25,7 @@ package com.encinitaslabs.rfid;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.Date;
 
 /**
@@ -82,15 +83,17 @@ public class Log {
      */
     public void makeEntry(String message, Level level_) {
     	if (level_.compareTo(this.logLevel) <= 0) {
+    		Date curDate = new Date();
+    		SimpleDateFormat format = new SimpleDateFormat("HH:mm:ss:SSS");
     		if (logToConsole) {
-        		System.out.println(level_.toString() + ": " + message);    			
+        		System.out.println(level_.toString() + "[" + format.format(curDate) + "]:" + message);    			
     		}
         	if (logToFile) {
     		    FileWriter fstream;
     			try {
     				fstream = new FileWriter(filename, true);
     			    BufferedWriter out = new BufferedWriter(fstream);
-    			    out.write(level_.toString() + ": " + message + "\n");
+    			    out.write(level_.toString() + "[" + format.format(curDate) + "]:" + message + "\n");
     			    out.close();
     			} catch (IOException e) {
     				System.out.println("Unable to open log file\n" + e.toString());

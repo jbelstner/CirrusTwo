@@ -50,6 +50,7 @@ public class InventoryProfile {
 	private Integer numVirtualPorts = 1;
 	private Float defaultPowerLevel = (float) 30;
 	private Integer defaultDwellTime = 2000;
+	private Integer defaultDelayTime = 2000;
 	private Integer defaultInvCycles = 0;
 
 	// Tag Query Configuration Parameters
@@ -125,6 +126,11 @@ public class InventoryProfile {
 					if ((this.defaultInvCycles == 0) && (this.defaultDwellTime == 0)) {
 						// Both cannot be zero so set numberInventoryCycles = 1
 						this.defaultInvCycles = 1;
+					}
+				} else if (currentLine.startsWith("DELAY_TIME") && (st.length == 2)) {
+					this.defaultDelayTime = Integer.parseInt(st[1]);
+					if ((this.defaultDelayTime < 0) || (this.defaultDelayTime > 65535)) {
+						this.defaultDelayTime = 2000;
 					}
 				} else if (currentLine.startsWith("SELECTED_STATE") && (st.length == 2)) {
 					this.selectedState = CmdTagAccess.Selected.valueOf(st[1]);
@@ -982,6 +988,47 @@ public class InventoryProfile {
 	}
 
 	/** 
+	 * getDefaultDelayTime<P>
+	 * This method returns the DelayTime
+	 * This value specifies the default amount of time in milliseconds that
+	 * the Cirrus-II will wait between the end of one tag-protocol-operation
+	 * cycle and the beginning of the next. If this parameter is zero, the 
+	 * transmit on time is maximized.
+	 * @return The Delay Time in ms.
+	 */
+	public Integer getDefaultDelayTime() {
+		return defaultDelayTime;
+	}
+
+	/** 
+	 * setDefaultDelayTime<P>
+	 * This method sets the DelayTime
+	 * This value specifies the default amount of time in milliseconds that
+	 * the Cirrus-II will wait between the end of one tag-protocol-operation
+	 * cycle and the beginning of the next. If this parameter is zero, the 
+	 * transmit on time is maximized.
+	 * @param delayTime_ The Delay Time in ms.
+	 */
+	public void setDefaultDelayTime(int delayTime_) {
+		defaultDelayTime = delayTime_;
+	}
+
+	/** 
+	 * setDefaultDelayTime<P>
+	 * This method sets the DelayTime
+	 * This value specifies the default amount of time in milliseconds that
+	 * the Cirrus-II will wait between the end of one tag-protocol-operation
+	 * cycle and the beginning of the next. If this parameter is zero, the 
+	 * transmit on time is maximized.
+	 * @param delayTime_ The Delay Time in ms.
+	 */
+	public void setDefaultDelayTime(Number delayTime_) {
+		if (delayTime_ != null) {
+			defaultDelayTime = delayTime_.intValue();
+		}
+	}
+
+	/** 
 	 * getProfile<P>
 	 * This method displays all the configuration settings.
 	 * @param jsonFormat True if the result string is in JSON format
@@ -998,6 +1045,7 @@ public class InventoryProfile {
 			result.append( "\"def_power_level\":" + Float.toString(getDefaultPowerLevel()) + ",");
 			result.append( "\"def_dwell_time\":" + Integer.toString(getDefaultDwellTime()) + ",");
 			result.append( "\"def_inv_cycles\":" + Integer.toString(getDefaultInvCycles()) );
+			result.append( "\"def_delay_time\":" + Integer.toString(getDefaultDelayTime()) + ",");
 			result.append( "\"selected_state\":\"" + getSelectedState().toString() + "\",");
 			result.append( "\"session_flag\":\"" + getSessionFlag().toString() + "\",");
 			result.append( "\"target_state\":\"" + getTargetState().toString() + "\",");
@@ -1022,6 +1070,7 @@ public class InventoryProfile {
 			System.out.println( "Default Power Level (dBm) = " + Float.toString(getDefaultPowerLevel()) );
 			System.out.println( "Default Dwell Time (ms)   = " + Integer.toString(getDefaultDwellTime()) );
 			System.out.println( "Default Inventory Cycles  = " + Integer.toString(getDefaultInvCycles()) );
+			System.out.println( "Default Delay Time (ms)   = " + Integer.toString(getDefaultDelayTime()) );
 			System.out.println( "Selected State            = " + getSelectedState().toString() );
 			System.out.println( "Session Flag              = " + getSessionFlag().toString() );
 			System.out.println( "Target State              = " + getTargetState().toString() );
@@ -1058,6 +1107,7 @@ public class InventoryProfile {
 			setDefaultPowerLevel((Number) jsonObject.get("def_power_level"));
 			setDefaultDwellTime((Number) jsonObject.get("def_dwell_time"));
 			setDefaultInvCycles((Number) jsonObject.get("def_inv_cycles"));
+			setDefaultDelayTime((Number) jsonObject.get("def_delay_time"));
 			setSelectedState((String) jsonObject.get("selected_state"));
 			setSessionFlag((String) jsonObject.get("session_flag"));
 			setTargetState((String) jsonObject.get("target_state"));

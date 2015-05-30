@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Encinitas Labs SmartAntenna Installer"
+echo "Encinitas Labs Cirrus-II Installer"
 echo " "
 
 if [ $# -gt 0 ]; then
@@ -28,7 +28,7 @@ if [ $# -gt 0 ]; then
         mv interfaces.dhcp interfaces
     fi
 
-    echo "Updating the Reader ID to $1"
+    echo "Updating the Device ID to $1"
     mv application.conf application.tmp
     sed "s/220/$1/g" application.tmp > application.conf
     rm application.tmp
@@ -41,6 +41,14 @@ if [ $# -gt 0 ]; then
     sed "s/220/$1/g" hostname.tmp > hostname
     rm hostname.tmp
 
+    if [ ! -f /usr/lib/librxtxSerial.so ]; then
+        echo "Copying serial library files"
+        mv librxtxSerial.so /usr/lib/
+        execstack -o /usr/lib/librxtxSerial.so
+    else
+        rm librxtxSerial.so
+    fi
+
     if [ ! -d "/opt/encinitaslabs/rfid" ]; then
         echo "Making rfid directories"
         mkdir /opt/encinitaslabs
@@ -48,20 +56,15 @@ if [ $# -gt 0 ]; then
     fi
 
     echo "Copying shell scripts"
+    chmod +x *.sh
     mv *.sh /opt/encinitaslabs/rfid/
 
     echo "Copying config files"
+    mv wpa_supplicant.conf /etc/wpa_supplicant.conf
     mv *.conf /opt/encinitaslabs/rfid/
 
     echo "Copying jar file"
-    mv SmartAntenna.jar /opt/encinitaslabs/rfid/
-
-    if [ ! -f /usr/lib/librxtxSerial.so ]; then
-        echo "Copying serial library"
-        mv librxtxSerial.so /usr/lib/
-    else
-        rm librxtxSerial.so
-    fi
+    mv CirrusII.jar /opt/encinitaslabs/rfid/
 
     if [ ! -f /etc/init.d/rfid.sh ]; then
         echo "Making soft links"
@@ -88,9 +91,9 @@ if [ $# -gt 0 ]; then
 else
 
     echo "Usage:"
-    echo "./install.bash <reader_id>"
+    echo "./install.bash <device_id>"
     echo "or"
-    echo "./install.bash <reader_id> <ip_address> <ip_gateway>"
+    echo "./install.bash <device_id> <ip_address> <ip_gateway>"
     echo " "
 
 fi

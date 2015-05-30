@@ -115,7 +115,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2-0.8.9";
+	private static final String apiVersionString = "C2-0.9.0";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -139,6 +139,7 @@ public class CirrusII {
 	private final Integer selfTestTime = 7;
 	private final Integer readerResetCount_tics = 10;
 	private Integer readerResetCounter = 0;
+	private Integer readerDelayCounter = 0;
 	private Double latitude = 0.0;
 	private Double longitude = 0.0;
 	
@@ -509,11 +510,14 @@ public class CirrusII {
 		} else if (responseType.contains("End")) {
 			// See if we need to continue to read tags
 			if (autoRepeat) {
-				try {
-					sendInventoryRequest();
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
-				}				
+				readerDelayCounter = profile.getDefaultDelayTime() / ticTime_ms;
+				if (readerDelayCounter == 0) {
+					try {
+						sendInventoryRequest();
+					} catch (InterruptedException e) {
+						log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+					}									
+				}
 			}
 			// Return to idle state
     		setRfidState(RfidState.Idle);
@@ -1171,12 +1175,25 @@ public class CirrusII {
 		// See if we are waiting for the reader module to finish resetting
 		if ((rfidState == RfidState.WaitingForReset) && (++readerResetCounter >= readerResetCount_tics)) {
 			readerResetCounter = 0;
+			ticTimerCount = 0;
 			setRfidState(RfidState.Idle);
 			try {
 				initializeRfidModuleSettings();
 				log.makeEntry("Autonomous reset complete", Log.Level.Information);
 			} catch (InterruptedException e) {
 				log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
+			}
+		}
+		
+		// See if we are waiting for the delay counter to count down
+		if (readerDelayCounter > 0) {
+			// Decrement the delay counter and start the next inventory when zero
+			if ((--readerDelayCounter == 0) && (autoRepeat)) {
+				try {
+					sendInventoryRequest();
+				} catch (InterruptedException e) {
+					log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+				}
 			}
 		}
 
@@ -1462,7 +1479,7 @@ public class CirrusII {
 			if (cmd != null) { serialCmdQueue.put(cmd); }
 			else { System.out.println("Invalid parameter or format for " + cli[0]); }
 			
-		} else if ((command.startsWith("write_banked_reg")) && (cli.length >= 3)) {
+		} else if ((command.startsWith("write_banked_reg")) && (cli.length >= 4)) {
 			short address = Short.decode(cli[1]);
 			short bank = Short.decode(cli[2]);
 			int value = Integer.decode(cli[3]);
@@ -1470,7 +1487,7 @@ public class CirrusII {
 			if (cmd != null) { serialCmdQueue.put(cmd); }
 			else { System.out.println("Invalid parameter or format for " + cli[0]); }
 			
-		} else if ((command.startsWith("read_banked_reg")) && (cli.length >= 2)) {
+		} else if ((command.startsWith("read_banked_reg")) && (cli.length >= 3)) {
 			short address = Short.decode(cli[1]);
 			short bank = Short.decode(cli[2]);
 			byte[] cmd = llcs.readRegister(address, bank);

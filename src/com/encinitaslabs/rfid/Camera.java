@@ -250,7 +250,8 @@ public class Camera {
 				    				enablePower(false);
 									Thread.sleep(1000);
 				    				enablePower(true);
-									Thread.sleep(2000);
+									Thread.sleep(6000);
+					    			log( "Camera Ready", Log.Level.Information );
 							    }				        		
 				        	}
 				        } catch(Exception e){
