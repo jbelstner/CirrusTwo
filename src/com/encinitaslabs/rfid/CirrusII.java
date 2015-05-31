@@ -109,13 +109,13 @@ public class CirrusII {
 	private Integer epcFirst = null;
 	private Integer triggersPerEvent = 3;
 	private Integer triggerInterval_sec = 5;
-	private Integer eventTimeout_sec = 300;
+	private Integer eventTimeout_sec = 900;
 	// Statistics
 	private Integer numberOfTriggers = 0;
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2-0.9.0";
+	private static final String apiVersionString = "C2P-0.9.0";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -348,7 +348,7 @@ public class CirrusII {
 
 		// Give the user some help
 		if (useCLI) {
-			showTopLevelCommands();
+			showTestModeOffCommands();
 		}		
 	}
 
@@ -643,12 +643,22 @@ public class CirrusII {
 	 * showAllCommands<P>
 	 * This method displays a list of all the valid commands.
 	 */
-	private void showTopLevelCommands() {
+	private void showTestModeOffCommands() {
 		System.out.println( "\n\n" );
-		System.out.println( "SmartAntenna Command Line Options Currently Supported" );
+		System.out.println( "Cirrus-IIP Command Line Options" );
 		System.out.println( "\n" );
-		System.out.println( "test_mode_on  - Turns Test Mode functionality ON." );
-		System.out.println( "test_mode_off - Turns Test Mode functionality OFF." );
+		System.out.println( "test_mode_on  - Turns RFID Test Mode functionality ON." );
+		System.out.println( "custom_macros - Displays the list of RFID Custom Macro commands." );
+		System.out.println( "help          - Displays the list of Command Line Options." );
+		System.out.println( "quit          - Shuts down the Smart Antenna application." );
+		System.out.println( "\n" );
+	}
+	
+	private void showTestModeOnCommands() {
+		System.out.println( "\n\n" );
+		System.out.println( "Cirrus-IIP Command Line Options - RFID Test Mode" );
+		System.out.println( "\n" );
+		System.out.println( "test_mode_off - Turns RFID Test Mode functionality OFF." );
 		System.out.println( "config        - Displays the list of RFID Module Config commands." );
 		System.out.println( "antenna       - Displays the list of RFID Antenna Config commands." );
 		System.out.println( "tag_select    - Displays the list of RFID Tag Select commands." );
@@ -657,8 +667,7 @@ public class CirrusII {
 		System.out.println( "control       - Displays the list of RFID Module Control commands." );
 		System.out.println( "firmware      - Displays the list of RFID Firmware Access commands." );
 		System.out.println( "gpio_ctrl     - Displays the list of RFID GPIO Control commands." );
-		System.out.println( "test_mode     - Displays the list of RFID Test Support commands." );
-		System.out.println( "macros        - Displays the list of RFID Macro commands." );
+		System.out.println( "test_support  - Displays the list of RFID Test Support commands." );
 		System.out.println( "help          - Displays the list of Command Line Options." );
 		System.out.println( "quit          - Shuts down the Smart Antenna application." );
 		System.out.println( "\n" );
@@ -671,7 +680,7 @@ public class CirrusII {
 	private void showModuleConfigCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Module Config Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 6.1" );
+		System.out.println( "See Software User's Guide Section 5.1" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -702,7 +711,7 @@ public class CirrusII {
 	private void showAntennaConfigCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Antenna Config Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 6.2" );
+		System.out.println( "See Software User's Guide Section 5.2" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -726,7 +735,7 @@ public class CirrusII {
 	private void showTagSelectCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Tag Select Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 6.3" );
+		System.out.println( "See Software User's Guide Section 5.3" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -754,7 +763,7 @@ public class CirrusII {
 	private void showTagAccessCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Tag Access Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 6.4" );
+		System.out.println( "See Software User's Guide Section 5.4" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -785,7 +794,7 @@ public class CirrusII {
 	private void showTagProtocolCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Tag Protocol Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 6.5" );
+		System.out.println( "See Software User's Guide Section 5.5" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -811,7 +820,7 @@ public class CirrusII {
 	private void showModuleControlCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Module Control Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 6.6" );
+		System.out.println( "See Software User's Guide Section 5.6" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -836,7 +845,7 @@ public class CirrusII {
 	private void showFirmwareAccessCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Firmware Access Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 6.7" );
+		System.out.println( "See Software User's Guide Section 5.7" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -862,7 +871,7 @@ public class CirrusII {
 	private void showGpioControlCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID GPIO Control Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 6.8" );
+		System.out.println( "See Software User's Guide Section 5.8" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -884,7 +893,7 @@ public class CirrusII {
 	private void showTestSupportCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Test Support Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 6.9" );
+		System.out.println( "See Software User's Guide Section 5.9" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -916,7 +925,7 @@ public class CirrusII {
 	private void showMacroCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Macro Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 6.10" );
+		System.out.println( "See Software User's Guide Section 5.10" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values are in decimal format only." );
@@ -1003,7 +1012,11 @@ public class CirrusII {
 		String method = cmd[0];
 		// Certain command line input we do not queue for processing
 		if (method.equalsIgnoreCase("help")) {
-			showTopLevelCommands();
+			if (testMode) {
+				showTestModeOnCommands();
+			} else {
+				showTestModeOffCommands();
+			}
 		} else if (method.equalsIgnoreCase("quit")) {
 			cleanup();
 			System.exit(0); 
@@ -1029,9 +1042,9 @@ public class CirrusII {
 			showFirmwareAccessCommands();
 		} else if (method.equalsIgnoreCase("gpio_ctrl")) {
 			showGpioControlCommands();
-		} else if (method.equalsIgnoreCase("test_mode")) {
+		} else if (method.equalsIgnoreCase("test_support")) {
 			showTestSupportCommands();
-		} else if (method.equalsIgnoreCase("macros")) {
+		} else if (method.equalsIgnoreCase("custom_macros")) {
 			showMacroCommands();
 
 		} else if (method.equalsIgnoreCase("start")) {

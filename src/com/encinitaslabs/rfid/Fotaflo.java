@@ -104,10 +104,10 @@ public class Fotaflo {
 	}
 
 	/**
-     * makeEntry<P>
-     * Utility method to handle logging.
-     * @param message The message to log
-     * @param level_ The log level of this particular information
+     * postImageToServer<P>
+     * THis method posts photos to the Fotaflo picture server.
+     * @param filename The filename of the image
+     * @param tags The serialized string of tags associated with that image
      */
 	public Boolean postImageToServer( String filename, String tags ) throws Exception {
 		Boolean success = true;
