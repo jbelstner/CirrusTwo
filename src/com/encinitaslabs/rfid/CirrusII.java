@@ -359,6 +359,12 @@ public class CirrusII {
 			showTopLevelCommands();
 		}		
 	}
+	/**
+	 * setConfigOptions<p>
+	 * This method sets the config options if they are different from the defaults.
+	 * @param config
+	 */
+	
 	private void setConfigOptions (HashMap<String, String> config){
 		
 			if (config.get("COM_PORT") != null){this.rfidCommPort = config.get("COM_PORT");}

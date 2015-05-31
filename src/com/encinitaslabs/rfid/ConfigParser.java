@@ -28,28 +28,57 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.HashMap;
 
-
+/**
+ * ConfigParser<p>
+ * ConfigParser is meant to be a generic config parser. It takes in either a filename, 
+ * or a filename and field seperator (default is a [space]). It then sets it's config var
+ * which is a hashmap for the parsed config file.
+ * @author Encinitas Labratories, Inc.
+ * @version 0.01
+ */
 public class ConfigParser {
 	public HashMap<String, String> config = new HashMap<String, String>();
 
-	//Class Constructor
+	/**
+	 * Class constructor
+	 * @param filename_ The filename of the config file to read in
+	 */
 	public ConfigParser(String filename_ ){
 		try {
-			parseConfigFile(filename_);
+			parseConfigFile(filename_, " ");
 		} catch (Exception e) {
 			System.out.println(e.toString());
 		}
 	}
 	
+	/**
+	 * Overloaded class constructor
+	 * @param filename_ The filename of the config file to read in
+	 * @param fieldSperator The field separator, used to be more dynamic if a config file has an '='
+	 */
+	public ConfigParser(String filename_, String fieldSperator ){
+		try {
+			parseConfigFile(filename_, fieldSperator);
+		} catch (Exception e) {
+			System.out.println(e.toString());
+		}
+	}
+	
+	/**
+	 * Parses the config file
+	 * @param filename Path and Name of the config file
+	 * @param fieldSeperator Used to seperate the field
+	 * @throws IOException
+	 */
 	@SuppressWarnings("resource")
-	private void parseConfigFile(String filename) throws IOException {
+	private void parseConfigFile(String filename, String fieldSeperator) throws IOException {
 		BufferedReader br = null;
 		String currentLine;
 		br = new BufferedReader(new FileReader(filename));
 
 		try {
 			while ((currentLine = br.readLine()) != null) {
-				String st[] = currentLine.split(" ");
+				String st[] = currentLine.split(fieldSeperator);
 				if (!currentLine.startsWith("#") && st.length >= 2) {
 					this.config.put(st[0], currentLine.substring(st[0].length() + 1));
 				}
