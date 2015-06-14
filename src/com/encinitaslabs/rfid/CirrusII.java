@@ -115,7 +115,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2P-0.9.0";
+	private static final String apiVersionString = "C2P-0.9.5";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -150,7 +150,7 @@ public class CirrusII {
 	public static void main( String[] args ) throws InterruptedException , IOException {
 
 		System.out.println( "Encinitas Laboratories, Inc.  Copyright 2014-2015" );
-		System.out.println( "Cirrus-II, version " + apiVersionString);
+		System.out.println( "Cirrus-II Photo, version " + apiVersionString);
 			    
 		if ((args.length > 0) && (Boolean.valueOf(args[0]) == true)) {
 			System.out.println( "Command Line Interface Enabled\n\n");
@@ -558,16 +558,16 @@ public class CirrusII {
 				tryToTakePhoto = true;
 			}
 			// If we should take photo, check if the camera is ready
-			if (tryToTakePhoto && camera.isReady()) {
+			if (tryToTakePhoto && !camera.isBusy()) {
 				// Trigger the camera
-				if (camera.captureImageAndDownload(oldData.epc.substring(epcFirst, epcLast))) {
+				if (camera.takePhoto(oldData.epc.substring(epcFirst, epcLast))) {
 					numberOfTriggers++;
 					// Update the event database
 					oldData.shotCount++;				
 					oldData.eventCountDown_sec = eventTimeout_sec;
 					oldData.triggerCountDown_sec = triggerInterval_sec;
 					tagEvents.put(oldData.epc, oldData);
-					log.makeEntry(oldData.epc + " added to tagEvent", Log.Level.Information);
+					log.makeEntry(oldData.epc + " new trigger", Log.Level.Information);
 				}
 			}
 			// Update the all inclusive Tag Database
@@ -584,11 +584,18 @@ public class CirrusII {
 		Set<String> epcs = tagEvents.keySet();
 		for (String epc: epcs) {
 			TagData tagData = tagEvents.get(epc);
-			if (tagData.triggerCountDown_sec > 0) { tagData.triggerCountDown_sec--; }
-			if (tagData.eventCountDown_sec > 0) { tagData.eventCountDown_sec--; }
-			if (tagData.eventCountDown_sec == 0 ) {
-				log.makeEntry(epc + " removed from tagEvents", Log.Level.Information);
-				tagEvents.remove(epc);
+			if (tagData.triggerCountDown_sec > 0) {
+				tagData.triggerCountDown_sec--;
+				if (tagData.triggerCountDown_sec == 0 ) {
+					log.makeEntry(epc + " trigger holdoff expired", Log.Level.Debug);
+				}
+			}
+			if (tagData.eventCountDown_sec > 0) {
+				tagData.eventCountDown_sec--;
+				if (tagData.eventCountDown_sec == 0 ) {
+					log.makeEntry(epc + " tagEvent expired", Log.Level.Debug);
+					tagEvents.remove(epc);
+				}
 			}
 		}
 	}
@@ -650,7 +657,7 @@ public class CirrusII {
 		System.out.println( "test_mode_on  - Turns RFID Test Mode functionality ON." );
 		System.out.println( "custom_macros - Displays the list of RFID Custom Macro commands." );
 		System.out.println( "help          - Displays the list of Command Line Options." );
-		System.out.println( "quit          - Shuts down the Smart Antenna application." );
+		System.out.println( "quit          - Shuts down the Cirrus-II application." );
 		System.out.println( "\n" );
 	}
 	
@@ -669,7 +676,7 @@ public class CirrusII {
 		System.out.println( "gpio_ctrl     - Displays the list of RFID GPIO Control commands." );
 		System.out.println( "test_support  - Displays the list of RFID Test Support commands." );
 		System.out.println( "help          - Displays the list of Command Line Options." );
-		System.out.println( "quit          - Shuts down the Smart Antenna application." );
+		System.out.println( "quit          - Shuts down the Cirrus-II application." );
 		System.out.println( "\n" );
 	}
 	
@@ -680,7 +687,7 @@ public class CirrusII {
 	private void showModuleConfigCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Module Config Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 5.1" );
+		System.out.println( "See Software User's Guide Section 5.2" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -711,7 +718,7 @@ public class CirrusII {
 	private void showAntennaConfigCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Antenna Config Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 5.2" );
+		System.out.println( "See Software User's Guide Section 5.3" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -735,7 +742,7 @@ public class CirrusII {
 	private void showTagSelectCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Tag Select Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 5.3" );
+		System.out.println( "See Software User's Guide Section 5.4" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -763,7 +770,7 @@ public class CirrusII {
 	private void showTagAccessCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Tag Access Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 5.4" );
+		System.out.println( "See Software User's Guide Section 5.5" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -794,7 +801,7 @@ public class CirrusII {
 	private void showTagProtocolCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Tag Protocol Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 5.5" );
+		System.out.println( "See Software User's Guide Section 5.6" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -820,7 +827,7 @@ public class CirrusII {
 	private void showModuleControlCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Module Control Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 5.6" );
+		System.out.println( "See Software User's Guide Section 5.7" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -845,7 +852,7 @@ public class CirrusII {
 	private void showFirmwareAccessCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Firmware Access Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 5.7" );
+		System.out.println( "See Software User's Guide Section 5.8" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -871,7 +878,7 @@ public class CirrusII {
 	private void showGpioControlCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID GPIO Control Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 5.8" );
+		System.out.println( "See Software User's Guide Section 5.9" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -893,7 +900,7 @@ public class CirrusII {
 	private void showTestSupportCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Test Support Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 5.9" );
+		System.out.println( "See Software User's Guide Section 5.10" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values can be in either decimal or hex format." );
@@ -925,7 +932,7 @@ public class CirrusII {
 	private void showMacroCommands() {
 		System.out.println( "\n\n" );
 		System.out.println( "RFID Macro Commands Currently Supported" );
-		System.out.println( "See Software User's Guide Section 5.10" );
+		System.out.println( "See Software User's Guide Section 5.1" );
 		System.out.println( "for command and parameter definitions." );
 		System.out.println( "NOTE: Commands and parameters are separated by a single space." );
 		System.out.println( "      Parameter values are in decimal format only." );
@@ -934,16 +941,41 @@ public class CirrusII {
 		System.out.println( "stop" );
 		System.out.println( "beacon_on" );
 		System.out.println( "beacon_off" );
-		System.out.println( "capture_image" );
+		System.out.println( "manual_trigger" );
 		System.out.println( "show_database" );
 		System.out.println( "flush_database" );
 		System.out.println( "show_version" );
-		System.out.println( "show_config" );
+		System.out.println( "rfid_config" );
+		System.out.println( "camera_config" );
 		System.out.println( "run_bit" );
 		System.out.println( "reset" );
 		System.out.println( "help" );
 		System.out.println( "quit" );
 		System.out.println( "\n" );
+	}
+	
+	/** 
+	 * showCameraConfig<P>
+	 * This method displays the current camera configuration.
+	 */
+	private void showFotafloConfig() {
+		System.out.println("\n\n");
+		System.out.println( "Camera Location    = " + location );
+		System.out.println( "Camera Name        = " + deviceId );
+		System.out.println( "Auth Username      = " + username );
+		System.out.println( "Auth Password      = " + password );
+		System.out.println( "Photo Server URL   = " + photoUrl );
+		System.out.println( "Image Format       = " + imageFormat );
+		System.out.println( "Shots Per Trigger  = " + shotsPerTrigger );
+		System.out.println( "Trigger Interval   = " + triggerInterval_sec + " seconds" );
+		System.out.println( "Triggers Per Event = " + triggersPerEvent );
+		System.out.println( "Event Timeout      = " + eventTimeout_sec + " seconds" );
+		System.out.println( "Camera Make        = " + camera.getManufacturer());
+		System.out.println( "Camera Model       = " + camera.getModel());
+		System.out.println( "Camera Version     = " + camera.getVersion());
+		System.out.println( "Camera Serial#     = " + camera.getSerialNumber());
+		System.out.println( "\n\n" );
+		
 	}
 	
 	/** 
@@ -1023,9 +1055,11 @@ public class CirrusII {
 		} else if (method.equalsIgnoreCase("test_mode_on")) {
 			System.out.println("Test Mode = ON\n");
 			testMode = true;
+			showTestModeOnCommands();
 		} else if (method.equalsIgnoreCase("test_mode_off")) {
 			System.out.println("Test Mode = OFF\n");
 			testMode = false;
+			showTestModeOffCommands();
 		} else if (method.equalsIgnoreCase("config")) {
 			showModuleConfigCommands();
 		} else if (method.equalsIgnoreCase("antenna")) {
@@ -1048,6 +1082,7 @@ public class CirrusII {
 			showMacroCommands();
 
 		} else if (method.equalsIgnoreCase("start")) {
+			System.out.println("Starting autonomous photo capture\n");
 			try {
 				autoRepeat = true;
 				sendInventoryRequest();
@@ -1055,6 +1090,7 @@ public class CirrusII {
 				log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
 			}				
 		} else if (method.equalsIgnoreCase("stop")) {
+			System.out.println("Stopping autonomous photo capture\n");
 			try {
 				autoRepeat = false;
 				sendInventoryCancel();
@@ -1062,30 +1098,35 @@ public class CirrusII {
 				log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
 			}				
 		} else if (method.equalsIgnoreCase("beacon_on")) {
+			System.out.println("Visual beacon enabled\n");
 			led.beacon("Enable");
 		} else if (method.equalsIgnoreCase("beacon_off")) {
+			System.out.println("Visual beacon disabled\n");
 			led.beacon("Disable");
-		} else if (method.equalsIgnoreCase("capture_image")) {
+		} else if (method.equalsIgnoreCase("manual_trigger")) {
+			System.out.println("Manually trigger a burst using tag 1234567\n");
 			TagData tagData = new TagData();
 			tagData.epc = "1234567";
 			tagData.eventCountDown_sec = eventTimeout_sec;
 			tagPresent = true;
 			tagEvents.put(tagData.epc, tagData);
 			tagDatabase.put(tagData.epc, tagData);
-			camera.captureImageAndDownload(tagData.epc);
+			camera.takePhoto(tagData.epc);
 		} else if (method.equalsIgnoreCase("show_database")) {
 			printTagDatabase();
 		} else if (method.equalsIgnoreCase("flush_database")) {
-			System.out.println("Flushing Smart Antenna Database");
+			System.out.println("Flushing Cirrus-II tag database");
 			System.out.println(tagDatabase.size() + " tags erased");
 			System.out.println("\n");
 			tagDatabase.clear();
 		} else if (method.equalsIgnoreCase("show_version")) {
-			System.out.println("Smart Antenna Application = " + apiVersionString);
+			System.out.println("Cirrus-II Application = " + apiVersionString);
 			System.out.println("RFID Module Firmware Rev. = " + sipVersionString);
 			System.out.println("\n");
-		} else if (method.equalsIgnoreCase("show_config")) {
+		} else if (method.equalsIgnoreCase("rfid_config")) {
 			profile.getProfile(false);
+		} else if (method.equalsIgnoreCase("camera_config")) {
+			showFotafloConfig();
 		} else if (method.equalsIgnoreCase("run_bit")) {
 			bitData.sendBitResponseToCli();
 		} else if (	method.equalsIgnoreCase("reset") ) {
@@ -1128,7 +1169,9 @@ public class CirrusII {
 			// Upload any leftover pictures from last time
 			queueLeftoverFiles();
 		} else if (ticTimerCount == 7) {
+			camera.requestCameraInfo();
 			camera.updateImageFormat();
+		} else if (ticTimerCount == 10) {
 			if (!useCLI) {
 				try {
 					autoRepeat = true;
@@ -1291,7 +1334,7 @@ public class CirrusII {
 		bw.write("numberOfUniques  = " + numberOfUnique + "\n");
 		bw.write("numberOfUploads  = " + numberOfUploads + "\n");
 		bw.write("numberOfTriggers = " + numberOfTriggers + "\n");
-		bw.write("waitingForCamera = " + !camera.isReady() + "\n");
+		bw.write("waitingForCamera = " + camera.isBusy() + "\n");
 		bw.write("currentRfidState = " + rfidState.toString() + "\n");
 		bw.close();
 	}
@@ -1325,12 +1368,10 @@ public class CirrusII {
 					this.username = st[1];
 				} else if (currentLine.startsWith("PASSWORD") && (st.length == 2)) {
 					this.password = st[1];
-				} else if (currentLine.startsWith("LOCATION") && (st.length == 2)) {
+				} else if (currentLine.startsWith("LOCATION") && (st.length >= 2)) {
 					this.location = currentLine.substring(9); // everything after LOCATION
-		        	System.out.println("LOCATION = " + location);
 				} else if (currentLine.startsWith("DEVICE_ID") && (st.length >= 2)) {
 					this.deviceId = currentLine.substring(10); // everything after DEVICE_ID
-		        	System.out.println("DEVICE_ID = " + deviceId);
 				} else if (currentLine.startsWith("EPC_FIRST") && (st.length == 2)) {
 					this.epcFirst = Integer.parseInt(st[1]);
 				} else if (currentLine.startsWith("EPC_LAST") && (st.length == 2)) {

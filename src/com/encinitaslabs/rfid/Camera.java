@@ -30,6 +30,8 @@ import java.util.Date;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.encinitaslabs.rfid.CirrusII.RfidState;
+
 
 /**
  * Camera Object
@@ -45,8 +47,12 @@ public class Camera {
 	private final String version_s = "  Version: ";
 	private final String serialNumber_s = "  Serial Number: ";
 	private final String defaultName = "capt000";
+	private final Integer WAIT_FOR_FILE = 30;
+	private final Integer WAIT_INTERVAL = 500;
+	private final Integer WAIT_FOR_EXEC = 200;
 	private LinkedBlockingQueue<String> pictureQueue = null;
-    private AtomicBoolean waiting = null;
+	private LinkedBlockingQueue<String> commandQueue = null;
+    private AtomicBoolean busy = null;
 	private String make = null;
 	private String model = null;
 	private String version = null;
@@ -54,6 +60,7 @@ public class Camera {
 	private Log logObject = null;
 	private ImageFormat imageFormat = ImageFormat.SmallNormal;
 	private String shotsPerTrigger = "1";
+	private Boolean cameraOn = false;
 	
 	public enum ImageFormat {
 		LargeFine((String)"0"),
@@ -85,7 +92,30 @@ public class Camera {
 	public Camera ( LinkedBlockingQueue<String> pictureQueue_, Log logObject_ ) {
 		pictureQueue = pictureQueue_;
 		logObject = logObject_;		
-		waiting = new AtomicBoolean(false);
+		busy = new AtomicBoolean(false);
+		commandQueue = new LinkedBlockingQueue<String>();
+
+		// MANAGE THE CAMERA COMMAND QUEUE
+		Thread tagInfoWorker = new Thread () {
+			public void run() {
+				Runtime rt = Runtime.getRuntime();
+				while ( true ) {
+					try {
+						// This method blocks until a camera command is available
+						String command = commandQueue.take();
+						// The camera is busy
+						busy.set(true);
+						// Process the camera command
+						processCommand(command, rt);
+						// The camera is no longer busy
+						busy.set(false);
+					} catch (Exception e) {
+						log("Error processing tagInfoQueue\n" + e.toString(), Log.Level.Error);
+					}
+				}
+			}
+		};
+		tagInfoWorker.start();
 	}
 	
 	/** 
@@ -98,8 +128,12 @@ public class Camera {
 		try {
 			if (enable) {
 				Runtime.getRuntime().exec("./camera_power.sh 0");
+				log("Camera power ON", Log.Level.Information);
+				cameraOn = true;
 			} else {
 				Runtime.getRuntime().exec("./camera_power.sh 1");				
+				log("Camera power OFF", Log.Level.Information);
+				cameraOn = false;
 			}
 			return true;
 		} catch (IOException e) {
@@ -110,43 +144,11 @@ public class Camera {
 
 	/** 
 	 * isReady<P>
-	 * This method returns if the camera is ready.
+	 * This method returns True if the camera is busy or not on.
 	 * @return A Boolean.
 	 */
-	public Boolean isReady() {
-		return !waiting.get();
-	}
-
-	/** 
-	 * summary<P>
-	 * This method executes a gphoto2 command.
-	 * @throws IOException 
-	 */
-	public void summary() throws IOException {
-		// Send the gphoto2 command
-		Process proc = Runtime.getRuntime().exec("gphoto2 --summary");
-		BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
-		String line = "";
-		while ((line = stdInput.readLine()) != null) {
-			if (line != null) {
-				// Look for the Camera Manufacturer:
-				if (line.startsWith(make_s)) {
-					make = line.substring(make_s.length(), line.length()).trim();
-				}
-				// Look for the Camera Model:
-				else if (line.startsWith(model_s)) {
-					model = line.substring(model_s.length(), line.length()).trim();
-				}
-				// Look for the Camera SW Version:
-				else if (line.startsWith(version_s)) {
-					version = line.substring(version_s.length(), line.length()).trim();
-				}
-				// Look for the Camera Serial Number:
-				else if (line.startsWith(serialNumber_s)) {
-					serialNumber = line.substring(serialNumber_s.length(), line.length()).trim();
-				}
-			}
-		}
+	public Boolean isBusy() {
+		return (!cameraOn || busy.get());
 	}
 
 	/** 
@@ -190,89 +192,6 @@ public class Camera {
 	}
 
 	/** 
-	 * captureImage<P>
-	 * This method executes a gphoto2 command.
-	 */
-	public Boolean captureImage() {
-		boolean success = true;
-		// Check if we can do this
-		if (waiting.get() == false) {
-			try {
-				// Send the gphoto2 command
-				Runtime.getRuntime().exec("gphoto2 --capture-image");
-			} catch (IOException e) {
-				log( "Unable to take a picture!\n" + e.toString(), Log.Level.Error );
-				success = false;
-			}
-		} else {
-			success = false;
-		}
-		return success;
-	}
-
-	/** 
-	 * captureImageAndDownload<P>
-	 * This method executes a gphoto2 command.
-	 * @throws IOException
-	 */
-	public Boolean captureImageAndDownload( String tagInfo ) {
-		final String subEpc = tagInfo;
-		boolean success = true;
-		// Check if we can do this
-		if (waiting.compareAndSet(false, true)) {
-			try {
-				// Send the gphoto2 command
-				Runtime.getRuntime().exec("gphoto2 --capture-image-and-download -F=" + shotsPerTrigger + " -I=1");
-				// Wait in this thread for the file to download
-				Thread waitForDownload = new Thread () {
-					public void run() {
-				        try {
-				        	for (Integer i = 0; i < Integer.parseInt(shotsPerTrigger); i++) {
-							    String fileName = defaultName + i + ".jpg";
-							    File file = new File(fileName);
-							    int loops = 0;
-							    while (!file.exists()) {
-						    		loops++;
-						    		if (loops == 0xFFFF) { break; } // ~ 15 seconds
-							    }
-							    // Do only if the file exists
-							    if (file.exists()) {
-								    Long timeStamp = new Date().getTime();
-								    // Rename the file
-								    String newName = subEpc + "-" + timeStamp + ".jpg";
-									Runtime.getRuntime().exec("mv " + fileName + " " + newName);
-									Thread.sleep(250);
-									// Pass to the main CirrusII application for upload
-									pictureQueue.put(newName);
-							    } else {
-					    			log( "Timeout waiting for file download!", Log.Level.Warning );
-					    			// Cycle power on the camera
-				    				enablePower(false);
-									Thread.sleep(1000);
-				    				enablePower(true);
-									Thread.sleep(6000);
-					    			log( "Camera Ready", Log.Level.Information );
-							    }				        		
-				        	}
-				        } catch(Exception e){
-			    			log( "Error waiting for file!\n" + e.toString(), Log.Level.Warning );
-				        }
-						// Ready to take a new picture
-						waiting.set(false);
-					}
-				};
-				waitForDownload.start();
-				success = true;
-				
-			} catch (IOException e) {
-				log( "Unable to take a picture!\n" + e.toString(), Log.Level.Error );
-				waiting.set(false);
-			}
-		}
-		return success;
-	}
-
-	/** 
 	 * setImageFormat<P>
 	 * This method executes a gphoto2 command.
 	 */
@@ -295,27 +214,38 @@ public class Camera {
 	}
 
 	/** 
+	 * requestCameraInfo<P>
+	 * This method queues a gphoto2 command.
+	 */
+	public Boolean requestCameraInfo( ) {
+		boolean success = false;
+		try {
+			commandQueue.put("summary");
+			success = true;				
+		} catch (Exception e) {
+			log( "Unable to queue the summary command!\n" + e.toString(), Log.Level.Error );
+		}
+		return success;
+	}
+
+	/** 
 	 * updateImageFormat<P>
-	 * This method executes a gphoto2 command.
+	 * This method queues a gphoto2 command.
 	 */
 	public Boolean updateImageFormat( ) {
 		boolean success = false;
-		// Check if we can do this
-		if (waiting.get() == false) {
-			try {
-				// Send the gphoto2 command
-				Runtime.getRuntime().exec("gphoto2 --set-config /main/imgsettings/imageformat=" + imageFormat.getValue());
-				success = true;
-			} catch (IOException e) {
-				log( "Unable to update the image format!\n" + e.toString(), Log.Level.Error );
-			}
+		try {
+			commandQueue.put("set-config");
+			success = true;				
+		} catch (Exception e) {
+			log( "Unable to queue the set-config command!\n" + e.toString(), Log.Level.Error );
 		}
 		return success;
 	}
 
 	/** 
 	 * setShotsPerTrigger<P>
-	 * This method executes a gphoto2 command.
+	 * This method stores local variables.
 	 */
 	public Boolean setShotsPerTrigger(String shots_) {
 		boolean success = false;
@@ -327,6 +257,143 @@ public class Camera {
 			}
 		}
 		return success;
+	}
+
+	/** 
+	 * takePhoto<P>
+	 * This method queues a gphoto2 command.
+	 * @throws IOException
+	 */
+	public Boolean takePhoto( String tagInfo ) {
+		boolean success = false;
+		try {
+			commandQueue.put("capture-image-and-download " + tagInfo);
+			success = true;				
+		} catch (Exception e) {
+			log( "Unable to queue the capture command!\n" + e.toString(), Log.Level.Error );
+		}
+		return success;
+	}
+
+	/** 
+	 * processCommand<P>
+	 * This method processes the queued camera command.
+	 */
+	private void processCommand(String command, Runtime rt) {
+		// Parse the command
+		String cmd[] = command.split(" ");
+		String method = cmd[0];
+		if (method.equalsIgnoreCase("set-config")) {
+			setConfig(rt);
+		} else if (method.equalsIgnoreCase("summary")) {
+			summary(rt);
+		} else if (method.equalsIgnoreCase("capture-image-and-download")) {
+			if (cmd.length == 2) {
+				captureImageAndDownload(rt, cmd[1]);
+			}
+		} else {
+			log( "Invalid camera command", Log.Level.Warning );
+		}
+	}
+
+	/** 
+	 * setConfig<P>
+	 * This method executes a gphoto2 command.
+	 */
+	private void setConfig(Runtime rt) {
+		try {
+			// Send the gphoto2 command
+			log("gphoto2 --set-config /main/imgsettings/imageformat=" + imageFormat.getValue(), Log.Level.Debug);
+			rt.exec("gphoto2 --set-config /main/imgsettings/imageformat=" + imageFormat.getValue());
+		} catch (IOException e) {
+			log("Error --set-config\n" + e.toString(), Log.Level.Error);
+		}
+	}
+
+	/** 
+	 * summary<P>
+	 * This method executes a gphoto2 command.
+	 * @throws IOException 
+	 */
+	private void summary(Runtime rt) {
+		try {
+			// Send the gphoto2 command
+			log("gphoto2 --summary", Log.Level.Debug);
+			Process proc = rt.exec("gphoto2 --summary");
+			Thread.sleep(WAIT_FOR_EXEC);
+			BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+			String line = "";
+			while ((line = stdInput.readLine()) != null) {
+				if (line != null) {
+					// Look for the Camera Manufacturer:
+					if (line.startsWith(make_s)) {
+						make = line.substring(make_s.length(), line.length()).trim();
+					}
+					// Look for the Camera Model:
+					else if (line.startsWith(model_s)) {
+						model = line.substring(model_s.length(), line.length()).trim();
+					}
+					// Look for the Camera SW Version:
+					else if (line.startsWith(version_s)) {
+						version = line.substring(version_s.length(), line.length()).trim();
+					}
+					// Look for the Camera Serial Number:
+					else if (line.startsWith(serialNumber_s)) {
+						serialNumber = line.substring(serialNumber_s.length(), line.length()).trim();
+					}
+				}
+			}
+		} catch (Exception e) {
+			log("Error --summary\n" + e.toString(), Log.Level.Error);
+		}
+	}
+
+	/** 
+	 * captureImageAndDownload<P>
+	 * This method executes a gphoto2 command.
+	 */
+	private void captureImageAndDownload(Runtime rt, String subEpc) {
+		try {
+			// Send the gphoto2 command
+			log("gphoto2 --capture-image-and-download -F=" + shotsPerTrigger + " -I=1", Log.Level.Debug);
+			rt.exec("gphoto2 --capture-image-and-download -F=" + shotsPerTrigger + " -I=1");
+			// Now wait for the file(s) to download
+        	for (Integer i = 0; i < Integer.parseInt(shotsPerTrigger); i++) {
+			    String fileName = defaultName + i + ".jpg";
+			    File file = new File(fileName);
+			    int wait = WAIT_FOR_FILE;
+			    while (!file.exists()) {
+					Thread.sleep(WAIT_INTERVAL);
+					wait--;
+		    		if (wait <= 0) { break; }
+			    }
+			    // Queue the filename for upload if it exists
+			    if (file.exists()) {
+					log("Received " + fileName, Log.Level.Debug);
+				    Long timeStamp = new Date().getTime();
+				    // Rename the file
+				    String newName = subEpc + "-" + timeStamp + ".jpg";
+					Runtime.getRuntime().exec("mv " + fileName + " " + newName);
+					Thread.sleep(250);
+					pictureQueue.put(newName);
+					Thread.sleep(1000);
+			    } else {
+	    			log( "Timeout waiting for file download!", Log.Level.Warning );
+	    			// Cycle power on the camera
+    				enablePower(false);
+					Thread.sleep(1000);
+    				enablePower(true);
+					Thread.sleep(6000);
+	    			log( "Camera Ready", Log.Level.Information );
+	    			break; // break out of the for loop
+			    }				        		
+        	}
+			log("gphoto2 --delete-all-files", Log.Level.Debug);
+			rt.exec("gphoto2 --delete-all-files");
+			Thread.sleep(1000);
+		} catch (Exception e) {
+			log("Error --capture-image-and-download\n" + e.toString(), Log.Level.Error);
+		}
 	}
 
 	/** 
