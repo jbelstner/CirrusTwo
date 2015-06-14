@@ -376,7 +376,7 @@ public class SelfTest {
 		Long hours   = (upTime - (days * 86400000))/3600000;
 		Long minutes = (upTime - (days * 86400000) - (hours * 3600000))/60000;
 		Long seconds = (upTime - (days * 86400000) - (hours * 3600000) - (minutes * 60000))/1000;
-		System.out.println("Smart Antenna Up Time   = " + days + " days, " + hours + " hrs, " + minutes + " min, " + seconds + " sec");
+		System.out.println("Cirrus-IIP Up Time      = " + days + " days, " + hours + " hrs, " + minutes + " min, " + seconds + " sec");
 		System.out.println("Total CPU Utilization   = " + totalCpuUsedPercent + "%");
 		System.out.println("Total Memory Used       = " + totalMemUsedBytes + " bytes");
 		System.out.println("Total Memory Cached     = " + totalMemCachBytes + " bytes");
