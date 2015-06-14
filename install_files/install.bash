@@ -19,7 +19,7 @@ if [ $# -gt 0 ]; then
     tar -xf install_*.tgz
     chmod 777 *.sh
 
-    if [ $# -eq 3 ]; then
+    if [ $# -eq 4 ]; then
         echo "Updating the IP address to $2"
         echo "Updating the default gateway to $3"
         sed "s/440/$2/g" interfaces.static > interfaces.tmp
@@ -28,17 +28,19 @@ if [ $# -gt 0 ]; then
         mv interfaces.dhcp interfaces
     fi
 
-    echo "Updating the Device ID to $1"
-    mv application.conf application.tmp
-    sed "s/220/$1/g" application.tmp > application.conf
-    rm application.tmp
+    echo "Updating the Location to $1"
+    sed "s/330/$1/g" application.conf > application.tmp1
+    echo "Updating the Camera Name to $2"
+    sed "s/331/$2/g" application.tmp1 > application.tmp2
+    mv application.tmp2 application.conf
+    rm application.tmp1
 
-    echo "Updating the hostname to $1"
+    echo "Updating the Linux hostname to $2"
     mv hosts hosts.tmp
-    sed "s/220/$1/g" hosts.tmp > hosts
+    sed "s/220/$2/g" hosts.tmp > hosts
     rm hosts.tmp
     mv hostname hostname.tmp
-    sed "s/220/$1/g" hostname.tmp > hostname
+    sed "s/220/$2/g" hostname.tmp > hostname
     rm hostname.tmp
 
     if [ ! -f /usr/lib/librxtxSerial.so ]; then
@@ -90,10 +92,15 @@ if [ $# -gt 0 ]; then
 
 else
 
-    echo "Usage:"
-    echo "./install.bash <device_id>"
+    echo "Usage:  (dhcp)"
+    echo "./install.bash <location> <camera>"
+    echo "or (static ip)"
+    echo "./install.bash <location> <camera> <ip_address> <ip_gateway>"
+    echo " "
+    echo "Example:"
+    echo './install.bash "Shallotte Adventure Mgmt Group" "Shallotte6"'
     echo "or"
-    echo "./install.bash <device_id> <ip_address> <ip_gateway>"
+    echo './install.bash "Myrtle Adventure Mgmt Group" "Myrtle4" 192.168.1.14 192.168.1.1'
     echo " "
 
 fi

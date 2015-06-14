@@ -47,7 +47,7 @@ echo -n "68" > /sys/class/gpio/unexport
 echo -n "1" > /sys/class/gpio/export
 echo -n "out" > /sys/class/gpio/gpio1/direction
 echo -n "1" > /sys/class/gpio/gpio1/value
-echo -n "1" > /sys/class/gpio/unexport
+#echo -n "1" > /sys/class/gpio/unexport
 
 # Configure gpio38 for Galileo Gen 2 DIGITAL_7 LED2 output
 
@@ -59,7 +59,7 @@ echo -n "39" > /sys/class/gpio/unexport
 echo -n "38" > /sys/class/gpio/export
 echo -n "out" > /sys/class/gpio/gpio38/direction
 echo -n "0" > /sys/class/gpio/gpio38/value
-echo -n "38" > /sys/class/gpio/unexport
+#echo -n "38" > /sys/class/gpio/unexport
 
 # Configure gpio40 for Galileo Gen 2 DIGITAL_8 Camera Enable
 
@@ -71,5 +71,5 @@ echo -n "41" > /sys/class/gpio/unexport
 echo -n "40" > /sys/class/gpio/export
 echo -n "out" > /sys/class/gpio/gpio40/direction
 echo -n "0" > /sys/class/gpio/gpio40/value
-echo -n "40" > /sys/class/gpio/unexport
+#echo -n "40" > /sys/class/gpio/unexport
 
