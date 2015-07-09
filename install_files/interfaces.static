@@ -11,11 +11,11 @@ iface eth0 inet static
     gateway 450
 
 # WiFi
-auto wlan1
-allow-hotplug wlan1
-iface wlan1 inet manual
-wpa-roam /etc/wpa_supplicant.conf
-iface default inet dhcp
+#auto wlan0
+#allow-hotplug wlan0
+#iface wlan0 inet manual
+#wpa-roam /etc/wpa_supplicant.conf
+#iface default inet dhcp
 
 # USB Cellular Dongle
 #auto ppp0
