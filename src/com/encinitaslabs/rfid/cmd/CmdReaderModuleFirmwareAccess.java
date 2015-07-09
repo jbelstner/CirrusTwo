@@ -192,7 +192,7 @@ public class CmdReaderModuleFirmwareAccess {
 	 * @author Encinitas Laboratories, Inc.
 	 * @version 0.1
 	 */
-	static final class RFID_MacGetError extends MtiCmd {
+	public static final class RFID_MacGetError extends MtiCmd {
 		public RFID_MacGetError(){
 			mCmdHead = CmdHead.RFID_MacGetError;
 		};
@@ -225,6 +225,17 @@ public class CmdReaderModuleFirmwareAccess {
 			mParam.clear();
 			mParam.add(errorType);
 			return composeCmd();
+		}
+
+		/** 
+		 * parseResponse
+		 * <P>This method is called to extract the error code from the response packet.
+		 * 
+		 * @param response The response buffer
+		 * @return The Integer error code
+		 */
+		public static int parseResponse(byte[] response) {
+			return getInt(response, STATUS_POS+1);
 		}
 	}
 

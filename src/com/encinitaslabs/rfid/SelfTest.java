@@ -45,6 +45,8 @@ public class SelfTest {
 	private Integer rfModuleCommActivityCount = 0;
 	private Integer ambientTemperature = null;
 	private Integer rfModuleTemperature = null;
+	private Integer lastMtiStatusCode = 0;
+	private Integer mtiStatusCode = 0;
 	private String pid = null;
 	private Long startEpoch_ms = null;
 	private Long totalMemInfoBytes = null;
@@ -67,6 +69,7 @@ public class SelfTest {
 	private Long procMemPercentThresholdHi = null;
 	// Alarm States
 	private Boolean bRfModuleCommHealth = false;
+	private Boolean bRfModuleFwError = false;
 	private Boolean bAmbientTempThresholdHi = false;
 	private Boolean bAmbientTempThresholdLo = false;
 	private Boolean bRfModuleTempThresholdHi = false;
@@ -187,6 +190,53 @@ public class SelfTest {
 	}
 
 	/** 
+	 * setMtiStatusCode<P>
+	 * This method sets the Firmware Error code returned from the RFID Module. 
+	 * @param mtiStatusCode_ A String.
+	 */
+	public void setMtiStatusCode(String mtiStatusCode_) {
+		if (mtiStatusCode_ != null) {
+			mtiStatusCode = Integer.decode(mtiStatusCode_);
+		}
+	}
+
+	/** 
+	 * setMtiStatusCode<P>
+	 * This method sets the Firmware Status code returned from the RFID Module. 
+	 * @param mtiStatusCode_ An Integer.
+	 */
+	public void setMtiStatusCode(Integer mtiStatusCode_) {
+		if (mtiStatusCode_ != null) {
+			mtiStatusCode = mtiStatusCode_.intValue();
+		}
+	}
+
+	/** 
+	 * getMtiStatusCode<P>
+	 * This method returns the Firmware Status code reported by the RFID Module.
+	 * If the code is non-zero, it stored it in the lastMtiStatusCode and clears
+	 * the mtiStatusCode register.
+	 * @return An Integer.
+	 */
+	public Integer getMtiStatusCode( ) {
+		Integer code = mtiStatusCode;
+		if (mtiStatusCode != 0) {
+			lastMtiStatusCode = mtiStatusCode;
+			mtiStatusCode = 0;
+		}
+		return code;
+	}
+
+	/** 
+	 * getLastMtiErrorCode<P>
+	 * This method returns the last Firmware Error code from the RFID Module.
+	 * @return An Integer.
+	 */
+	public Integer getLastMtiStatusCode( ) {
+		return lastMtiStatusCode;
+	}
+
+	/** 
 	 * getUpTime<P>
 	 * This method returns the "up time" of this process.
 	 * A value of zero indicates an uninitialized value.
@@ -288,6 +338,7 @@ public class SelfTest {
 			rfModuleCommHealth = RfModuleCommHealth.Good;
 		}
 		rfModuleCommActivityCount = 0;
+		bRfModuleFwError = (mtiStatusCode != 0);
 		
 		// Perform other checks against set thresholds
 		if (rfModuleCommHealth != null) {
@@ -319,7 +370,7 @@ public class SelfTest {
 		}
 
 		// A failure is any one of these parameters being true
-		return (bRfModuleCommHealth || bPositionChanged ||
+		return (bRfModuleCommHealth || bRfModuleFwError || bPositionChanged ||
 				bAmbientTempThresholdHi || bAmbientTempThresholdLo ||
 				bRfModuleTempThresholdHi || bRfModuleTempThresholdLo ||
 				bTotalCpuPercentThresholdHi || bTotalMemPercentThresholdHi ||
@@ -367,6 +418,7 @@ public class SelfTest {
 	public void sendBitResponseToCli( ) {
 		// UART Health
 		System.out.println("RFID Module Comms Staus = " + rfModuleCommHealth.toString());
+		System.out.println("RFID Module Status Code = " + mtiStatusCode.toString());
 		// Temperatures
 		System.out.println("Ambient Temparature     = " + ambientTemperature + "C");
 		System.out.println("RF Module Temperature   = " + rfModuleTemperature + "C");
