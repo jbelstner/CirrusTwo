@@ -56,6 +56,7 @@ public abstract class MtiCmd {
 	public static final int LENGTH_INDEX = 10;
 	public static final int ALT_DATA_INDEX = 14;
 	public static final int ACCESS_CMD_INDEX = 18;
+	public static final int END_STATUS_INDEX = 18;
 	public static final int GAIN_INDEX = 20;
 	public static final int RSSI_INDEX = 22;
 	public static final int DATA_INDEX = 26;
@@ -234,6 +235,26 @@ public abstract class MtiCmd {
 			type = null;
 		}
 		return type;
+	}
+	
+	/** 
+	 * getCmdEndStatus<P>
+	 * This helper method that returns the status word from the the MTI command-end packet.
+	 * @param packet The serial packet
+	 * @return The status word
+	 */
+	public static int getCmdEndStatus(byte[] packet) {
+		return getInt(packet, END_STATUS_INDEX);
+	}
+	
+	/** 
+	 * getResponseStatus<P>
+	 * This helper method that returns the status byte from the the MTI response packet.
+	 * @param response The serial response
+	 * @return The status byte
+	 */
+	public static byte getResponseStatus(byte[] response) {
+		return response[STATUS_POS];
 	}
 	
 	/** 

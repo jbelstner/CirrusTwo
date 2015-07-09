@@ -115,7 +115,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2P-0.9.5";
+	private static final String apiVersionString = "C2P-0.9.11";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -130,7 +130,7 @@ public class CirrusII {
 	private Log log = null;
 	private SelfTest bitData = null;
 	private Sensors sensors = null;
-	private boolean motionFlag = false;
+//	private boolean motionFlag = false;
 	private boolean errorFlag = false;
 	// Timeout and retry parameters
 	private final Integer ticTime_ms = 1000;
@@ -180,6 +180,12 @@ public class CirrusII {
 		useCLI = useCLI_;
 		bitData = new SelfTest();
 		sensors = new Sensors();
+		
+		try {
+			Runtime.getRuntime().exec("/etc/init.d/ntp restart");
+		} catch (IOException e) {
+			System.out.println("Unable to restart ntp\n" + e.toString());
+		}
 		
 		// Parse the config file (if there is one)
 		antennaPorts = new ArrayList<AntennaPort>();
@@ -364,14 +370,18 @@ public class CirrusII {
 	}
 	
 	/** 
-	 * requestReaderTemperature<P>
-	 * This method requests the Ambient Temperature from the RFID module.
+	 * pingModule<P>
+	 * This method requests the Device ID from the RFID module.
 	 * @throws InterruptedException 
 	 */
-	private void requestReaderTemperature(Byte source) throws InterruptedException {
-		// Request the Ambient Temperature from the reader
-		byte[] cmd = llcs.testGetTemperature(source);
-		if (cmd != null) { serialCmdQueue.put(cmd); }
+	private void pingModule() {
+		try {
+			// Request the Ambient Temperature from the reader
+			byte[] cmd = llcs.getDeviceID();
+			if (cmd != null) { serialCmdQueue.put(cmd); }
+		} catch (InterruptedException e) {
+			log.makeEntry("Unable to send Ping to RFID module\n" + e.toString(), Log.Level.Error);
+		}
 	}
 	
 	/** 
@@ -463,6 +473,12 @@ public class CirrusII {
 			// We should never get a "command" from the module
 			
 		} else if (responseType.contains("Response")) {
+			// Check the status byte for an error
+			Byte status = dataBuffer[MtiCmd.STATUS_POS];
+			if (status != 0) {
+				log.makeEntry("MTI Command Error Code: " + status.toString(), Log.Level.Error);
+				sendClearError();
+			}
 			// Process the receipt of a Response packets
 			if (rfidState != RfidState.WaitingForResponse) {
 				log.makeEntry( "Received Response packet in the wrong state!", Log.Level.Warning);
@@ -481,9 +497,12 @@ public class CirrusII {
 				}
 	    		setRfidState(RfidState.Idle);
 
-			} else if (response.name().contains("RFID_18K6CTagInventory")) {
-				setRfidState(RfidState.WaitingForBegin);
-				
+			} else if (response.name().contains("RFID_MacGetError") && !testModeResponsePending) {
+				int errorCode = CmdReaderModuleFirmwareAccess.RFID_MacGetError.parseResponse(dataBuffer);
+				if (errorCode != 0) {
+					log.makeEntry( "Last MTI MAC Firmware Error Code: 0x" + Integer.toHexString(errorCode), Log.Level.Error);
+				}
+
 			} else if (testModeResponsePending) {
 				processTestModeResponses(response, dataBuffer);
 	    		setRfidState(RfidState.Idle);
@@ -507,6 +526,15 @@ public class CirrusII {
 			}
 			
 		} else if (responseType.contains("End")) {
+			// Check the status word for an error
+			int status = MtiCmd.getCmdEndStatus(dataBuffer);
+			if (status != 0) {
+				bitData.setMtiStatusCode(status);
+				log.makeEntry("MTI MAC Firmware Error Code: 0x" + Integer.toHexString(status), Log.Level.Error);
+				sendClearError();
+			}
+			// Return to idle state
+    		setRfidState(RfidState.Idle);
 			// See if we need to continue to read tags
 			if (autoRepeat) {
 				readerDelayCounter = profile.getDefaultDelayTime() / ticTime_ms;
@@ -518,8 +546,6 @@ public class CirrusII {
 					}									
 				}
 			}
-			// Return to idle state
-    		setRfidState(RfidState.Idle);
 
 		} else if (responseType.contains("Access")) {
 			printTagAccessData(dataBuffer);
@@ -945,6 +971,7 @@ public class CirrusII {
 		System.out.println( "show_database" );
 		System.out.println( "flush_database" );
 		System.out.println( "show_version" );
+		System.out.println( "log_level <level>" );
 		System.out.println( "rfid_config" );
 		System.out.println( "camera_config" );
 		System.out.println( "run_bit" );
@@ -974,6 +1001,7 @@ public class CirrusII {
 		System.out.println( "Camera Model       = " + camera.getModel());
 		System.out.println( "Camera Version     = " + camera.getVersion());
 		System.out.println( "Camera Serial#     = " + camera.getSerialNumber());
+		System.out.println( "Latitude/Longitude = " + latitude + " / " + longitude);
 		System.out.println( "\n\n" );
 		
 	}
@@ -1145,6 +1173,16 @@ public class CirrusII {
 				log.makeEntry("Unable to re-open " + rfidCommPort + "\n" + e.toString(), Log.Level.Error);
 			}
 			
+		} else if (method.equalsIgnoreCase("log_level") && (cmd.length == 2)) {
+			try {
+				log.setLevel(Log.Level.valueOf(cmd[1]));
+				System.out.println("Log level changed to \"" + cmd[1] + "\"");
+				System.out.println("\n");
+			} catch (Exception e) {
+				System.out.println("Invalid log level!");
+				System.out.println("\n");
+			}
+			
 		} else if (testMode) {
 			// Individual LLCS commands are handled here
 			try {
@@ -1188,23 +1226,14 @@ public class CirrusII {
 		}
 		// Perform self-tests at a slower periodic rate
 		if ((ticTimerCount & selfTestMask) == selfTestTime) {
-			motionFlag = sensors.resetMotionDetector();
+//			motionFlag = sensors.resetMotionDetector();
 			errorFlag = bitData.performSelfTests();
-			// Ping the RFID Module when Idle and no inventory is in progress
-			if ((rfidState == RfidState.Idle) && (!autoRepeat)) {
-				try {
-					if (moduleType.equalsIgnoreCase("HPSIP")) {
-						requestReaderTemperature((byte) 0);						
-					} else {
-						requestReaderInformation();
-					}
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to send Ping to RFID module\n" + e.toString(), Log.Level.Error);
-				}
+			// Ping the RFID Module
+			if ((rfidState == RfidState.Idle) && (rfidState != RfidState.WaitingForReset)) {
+				pingModule();
 			}
 			// Handle the case where we missed the END packet due to a serial port overload
-			if ((rfidState == RfidState.WaitingForEnd) && (bitData.getRfModuleCommHealth().contains("Bad"))) {
-				autoRepeat = false;
+			if ((rfidState != RfidState.WaitingForReset) && (bitData.getRfModuleCommHealth().contains("Bad"))) {
 				try {
 					// Close and reopen the serial port
 					if ((serialComms != null) && serialComms.isConnected()) {
@@ -1218,6 +1247,8 @@ public class CirrusII {
 				} catch (Exception e) {
 					log.makeEntry("Unable Auto Reset RFID Serial\n" + e.toString(), Log.Level.Error);
 				}
+				// Set the delay counter before we start reading again
+				readerDelayCounter = profile.getDefaultDelayTime() / ticTime_ms;
 			}
 			// Update some runtime statistics
 			try {
@@ -1241,7 +1272,7 @@ public class CirrusII {
 		}
 		
 		// See if we are waiting for the delay counter to count down
-		if (readerDelayCounter > 0) {
+		if ((rfidState != RfidState.WaitingForReset) && (readerDelayCounter > 0)) {
 			// Decrement the delay counter and start the next inventory when zero
 			if ((--readerDelayCounter == 0) && (autoRepeat)) {
 				try {
@@ -1316,6 +1347,26 @@ public class CirrusII {
 		} else {
 			return false;
 		}
+	}
+	
+	/** 
+	 * sendClearError<P>
+	 * This method sends a command to the RFID module to retrieve and
+	 * clear the Error Code from the last error (i.e. (byte)1)
+	 * @return True is successful
+	 */
+	private Boolean sendClearError() {
+		byte[] cmd1 = llcs.getError((byte)1);
+		byte[] cmd2 = llcs.clearError( );
+		if ((cmd1 != null) && (cmd2 != null)) {
+			try {
+				serialCmdQueue.put(cmd1);
+				serialCmdQueue.put(cmd2);
+			} catch (Exception e) {
+				log.makeEntry("Unable to queue serial commands\n" + e.toString(), Log.Level.Error);
+			}
+		}
+		return true;
 	}
 	
 	/** 

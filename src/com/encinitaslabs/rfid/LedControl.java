@@ -140,7 +140,7 @@ public class LedControl {
 	 */
 	private void openControl() throws IOException {
 		Runtime rt = Runtime.getRuntime();
-		rt.exec("./export_led_ctrl.sh");
+//		rt.exec("./export_led_ctrl.sh");
 		rt.exec("./led.sh 0");
 	}
 	
@@ -151,8 +151,8 @@ public class LedControl {
 	 */
 	private void closeControl() throws IOException {
 		Runtime rt = Runtime.getRuntime();
-		rt.exec("./led.sh 0");
-		rt.exec("./unexport_led_ctrl.sh");
+		rt.exec("./led.sh 1");
+//		rt.exec("./unexport_led_ctrl.sh");
 	}
 	
 	/** 

@@ -30,8 +30,6 @@ import java.util.Date;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import com.encinitaslabs.rfid.CirrusII.RfidState;
-
 
 /**
  * Camera Object
