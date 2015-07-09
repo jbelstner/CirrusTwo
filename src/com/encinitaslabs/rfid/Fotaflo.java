@@ -25,12 +25,14 @@ package com.encinitaslabs.rfid;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.Date;
 
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URL;
 
 import org.apache.commons.codec.binary.Base64;
@@ -88,6 +90,8 @@ public class Fotaflo {
 		} else {
 			password = "Carlsbad";
 		}
+		log( "username " + username, Log.Level.Information );
+		log( "password " + password, Log.Level.Information );
 	}
 
 	/** 
@@ -101,6 +105,7 @@ public class Fotaflo {
 		} else {
 			photoUrl = "http://199.58.116.35:8081/fotaflo-test/pictures/upload";
 		}
+		log( "photoUrl " + photoUrl, Log.Level.Information );
 	}
 
 	/**
@@ -110,25 +115,41 @@ public class Fotaflo {
      * @param tags The serialized string of tags associated with that image
      */
 	public Boolean postImageToServer( String filename, String tags ) throws Exception {
-		Boolean success = true;
+		Boolean success = false;
         String credentials = username + ':' + password;
         Base64 encoder = new Base64();
         byte[] credArray = credentials.getBytes();
         String encoding = encoder.encodeToString(credArray);
 
-        URL url = new URL(photoUrl);
+        URL url = null;
+        HttpURLConnection uc = null;
 
-        HttpURLConnection uc = (HttpURLConnection)url.openConnection();
-        uc.setRequestProperty("Authorization", "Basic " + encoding);
-        uc.setRequestProperty("location", location);
-        uc.setRequestProperty("filename", filename);
-        uc.setRequestProperty("FileDate", new Date().getTime()+"");
-        uc.setRequestProperty("deviceId", deviceId);
-        uc.setRequestProperty("tags", tags);
-        uc.setRequestMethod("POST");
-
-        uc.setDoInput(true);
-        uc.setDoOutput(true);
+        try {
+            url = new URL(photoUrl);
+            uc = (HttpURLConnection)url.openConnection();
+            uc.setRequestProperty("Authorization", "Basic " + encoding);
+            uc.setRequestProperty("location", location);
+            uc.setRequestProperty("filename", filename);
+            uc.setRequestProperty("FileDate", new Date().getTime()+"");
+            uc.setRequestProperty("deviceId", deviceId);
+            uc.setRequestProperty("tags", tags);
+            uc.setRequestMethod("POST");
+            uc.setDoInput(true);
+            uc.setDoOutput(true);
+            
+        } catch (MalformedURLException e) {
+			log( "Invalid URL " + photoUrl, Log.Level.Error );
+        	return false;
+        } catch (IOException e) {
+			log( "Unable to open connection to remote server", Log.Level.Error );
+        	return false;
+        } catch (IllegalStateException e) {
+			log( "Unable to set property", Log.Level.Error );
+        	return false;
+        } catch (NullPointerException e) {
+			log( "Missing or invalid fields", Log.Level.Error );
+        	return false;
+        }
 
         OutputStream content = null;
         InputStream source = null;
@@ -156,19 +177,20 @@ public class Fotaflo {
                 rd.close();
     			log( "Server Response " + response.toString(), Log.Level.Information );
                 uc.disconnect();
+    			success = true;
             } else {
     			log( filename + " does not exist!", Log.Level.Warning );
-    			success = false;
             }
-        } finally {
-            if (content != null){
-                content.close();
-            }
-            if (source != null){
-                source.close();
-            }
+        } catch (IOException e) {
+			log( "Error uploading photo", Log.Level.Error );
         }
-        return success;
+        if (content != null){
+            content.close();
+        }
+        if (source != null){
+            source.close();
+        }
+       return success;
 	}
 
 	/** 
@@ -177,6 +199,8 @@ public class Fotaflo {
 	 */
 	public void setLogObject(Log logObject_) {
 		logObject = logObject_;
+		log( "deviceId " + deviceId, Log.Level.Information );
+		log( "location " + location, Log.Level.Information );
 	}
 	
 	/** 
