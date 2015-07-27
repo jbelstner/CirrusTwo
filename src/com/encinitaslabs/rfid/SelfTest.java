@@ -47,6 +47,7 @@ public class SelfTest {
 	private Integer rfModuleTemperature = null;
 	private Integer lastMtiStatusCode = 0;
 	private Integer mtiStatusCode = 0;
+	private Boolean pingRfModule = false;
 	private String pid = null;
 	private Long startEpoch_ms = null;
 	private Long totalMemInfoBytes = null;
@@ -59,6 +60,7 @@ public class SelfTest {
 	private Long processMemUsedPercent = null;		
 	private Long processCpuUsedPercent = null;
 	// Threshold settings
+/*
 	private Integer ambientTempThresholdHi = null;
 	private Integer ambientTempThresholdLo = null;
 	private Integer rfModuleTempThresholdHi = null;
@@ -67,6 +69,7 @@ public class SelfTest {
 	private Long totalMemPercentThresholdHi = null;
 	private Long procCpuPercentThresholdHi = null;
 	private Long procMemPercentThresholdHi = null;
+*/
 	// Alarm States
 	private Boolean bRfModuleCommHealth = false;
 	private Boolean bRfModuleFwError = false;
@@ -104,6 +107,18 @@ public class SelfTest {
 		startEpoch_ms = new Date().getTime();		
 		// GET THE CURRENT PROCESSS INFO
 		pid = getProcessPid();
+	}
+
+	/** 
+	 * shouldPingRfModule<P>
+	 * This method returns a Boolean indicating whether or
+	 * not it is time to ping the RF module.
+	 * @return A Boolean.
+	 */
+	public Boolean shouldPingRfModule() {
+		Boolean ping = pingRfModule;
+		pingRfModule = false;
+		return ping;
 	}
 
 	/** 
@@ -325,25 +340,34 @@ public class SelfTest {
 	 */
 	public Boolean performSelfTests() {
 		// Update the statistics
+/*
 		updateCpuStats();
 		updateMemStats();
 		bPositionChanged = checkAccelerometer();
 		processMemUsedBytes = totalMemUsedBytes * processMemUsedPercent.intValue() / 100;
 		totalMemUsedPercent = totalMemUsedBytes * 100 / totalMemInfoBytes;
-		
+*/		
 		// Check for serial activity since the last self test
 		if (rfModuleCommActivityCount == 0) {
-			rfModuleCommHealth = RfModuleCommHealth.Bad;
+			if (!pingRfModule) {
+				pingRfModule = true;
+			} else {
+				// We have a fault
+				rfModuleCommHealth = RfModuleCommHealth.Bad;
+				pingRfModule = false;
+			}
 		} else {
 			rfModuleCommHealth = RfModuleCommHealth.Good;
+			pingRfModule = false;
 		}
 		rfModuleCommActivityCount = 0;
-		bRfModuleFwError = (mtiStatusCode != 0);
+		bRfModuleFwError = (getMtiStatusCode() != 0);
 		
 		// Perform other checks against set thresholds
 		if (rfModuleCommHealth != null) {
 			bRfModuleCommHealth = (rfModuleCommHealth == RfModuleCommHealth.Bad);			
 		}
+/*
 		if ((ambientTemperature != null) && (ambientTempThresholdHi != null)) {
 			bAmbientTempThresholdHi = (ambientTemperature >= ambientTempThresholdHi);			
 		}
@@ -368,7 +392,7 @@ public class SelfTest {
 		if ((processMemUsedPercent != null) && (procMemPercentThresholdHi != null)) {
 			bProcMemPercentThresholdHi = (processMemUsedPercent >= procMemPercentThresholdHi);
 		}
-
+*/
 		// A failure is any one of these parameters being true
 		return (bRfModuleCommHealth || bRfModuleFwError || bPositionChanged ||
 				bAmbientTempThresholdHi || bAmbientTempThresholdLo ||
@@ -438,7 +462,7 @@ public class SelfTest {
 		// Somebody bumped the reader
 		System.out.println("Position Changed        = " + bPositionChanged + "\n");
 	}
-	
+
 	/** 
 	 * setBitAlarmThresholds<P>
 	 * This method set the thresholds for triggering a BIT alarm.
@@ -446,7 +470,7 @@ public class SelfTest {
 	public Boolean setBitAlarmThresholds( JSONObject command ) {
 		// Make sure we have a command
 		if (command == null) { return false; }
-
+/*
 		// Make sure we have parameters
 		JSONObject params = (JSONObject) command.get("params");
 		if (params == null) { return false; }
@@ -485,9 +509,10 @@ public class SelfTest {
 		if (number != null) {
 			rfModuleTempThresholdLo = number.intValue();
 		}
+*/
 		return true;
 	}
-	
+
 	/** 
 	 * getBitAlarmJsonObject<P>
 	 * This method builds the BIT ALARM JSON RPC indication object.
