@@ -30,6 +30,12 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.Date;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
@@ -54,7 +60,10 @@ public class Fotaflo {
 	private String deviceId = null;
 	private String location = null;
 	private Log logObject = null;
+	
+	private final ExecutorService executor = Executors.newCachedThreadPool();
 
+	
 	/** 
 	 * Fotaflo<P>
 	 * Class Constructor
@@ -106,15 +115,151 @@ public class Fotaflo {
 			photoUrl = "http://199.58.116.35:8081/fotaflo-test/pictures/upload";
 		}
 		log( "photoUrl " + photoUrl, Log.Level.Information );
-	}
+	}	
+	
+	/**
+	 * PostImage Object<P>
+	 * Attributes and functionality corresponding to posting an
+	 * image to the Fotaflo server.
+	 *  
+	 * @author Encinitas Labs
+	 * @version 0.1
+	 */
+	private class PostImage implements Runnable {
+		
+		private String username = null;
+		private String password = null;
+		private String photoUrl = null;
+		private String deviceId = null;
+		private String location = null;
+		private String filename = null;
+		private String tags = null;
+		
+		public PostImage(	String username, String password,
+							String photoUrl, String deviceId,
+							String location, String filename, String tags ) {
+						
+			this.username = username;
+			this.password = password;
+			this.photoUrl = photoUrl;
+			this.deviceId = deviceId;
+			this.location = location;
+			this.filename = filename;
+			this.tags = tags;
+		}
+		
+		@Override
+		public void run() {
+	        String credentials = username + ':' + password;
+	        Base64 encoder = new Base64();
+	        byte[] credArray = credentials.getBytes();
+	        String encoding = encoder.encodeToString(credArray);
 
+	        URL url = null;
+	        HttpURLConnection uc = null;
+
+	        try {
+	            url = new URL(photoUrl);
+	            uc = (HttpURLConnection)url.openConnection();
+	            uc.setRequestProperty("Authorization", "Basic " + encoding);
+	            uc.setRequestProperty("location", location);
+	            uc.setRequestProperty("filename", filename);
+	            uc.setRequestProperty("FileDate", new Date().getTime()+"");
+	            uc.setRequestProperty("deviceId", deviceId);
+	            uc.setRequestProperty("tags", tags);
+	            uc.setRequestMethod("POST");
+	            uc.setDoInput(true);
+	            uc.setDoOutput(true);
+	            
+	        } catch (MalformedURLException e) {
+				log( "Invalid URL " + photoUrl, Log.Level.Error );
+	        	return;
+	        } catch (IOException e) {
+				log( "Unable to open connection to remote server", Log.Level.Error );
+	        	return;
+	        } catch (IllegalStateException e) {
+				log( "Unable to set property", Log.Level.Error );
+	        	return;
+	        } catch (NullPointerException e) {
+				log( "Missing or invalid fields", Log.Level.Error );
+	        	return;
+	        }
+
+	        OutputStream content = null;
+	        InputStream source = null;
+
+	        try {
+	        	File file = new File(filename);
+	            if (file.exists()) {
+	    			log( "Uploading " + filename, Log.Level.Information );
+	                source = new FileInputStream(file);
+	                content = uc.getOutputStream();
+
+	                IOUtils.copy(source, content);
+	                content.flush();
+	                content.close();
+
+	                // Get Response
+	    			log( "Waiting for Server Response", Log.Level.Information );
+	                InputStream is = uc.getInputStream();
+	                BufferedReader rd = new BufferedReader(new InputStreamReader(is));
+	                String line;
+	                StringBuffer response = new StringBuffer();
+	                while ((line = rd.readLine()) != null) {
+	                    response.append(line);
+	                    response.append('\r');
+	                }
+	                rd.close();
+	                is.close();
+	    			log( "Server Response " + response.toString(), Log.Level.Information );
+	                uc.disconnect();
+	            } else {
+	    			log( filename + " does not exist!", Log.Level.Warning );
+	            }
+	        } catch (IOException e) {
+				log( "Error uploading photo", Log.Level.Error );
+	        }
+	        
+	        try {
+		        if (content != null){
+		            content.close();
+		        }
+		        if (source != null){
+		            source.close();
+		        }
+	        } catch (IOException e) {
+				log( "Error closing input/output streams", Log.Level.Error );
+	        }
+		}
+	}
+	
 	/**
      * postImageToServer<P>
      * THis method posts photos to the Fotaflo picture server.
      * @param filename The filename of the image
      * @param tags The serialized string of tags associated with that image
      */
-	public Boolean postImageToServer( String filename, String tags ) throws Exception {
+	public Boolean postImageToServer( String filename, String tags ) {
+		
+		PostImage postImage = new PostImage(username, password, photoUrl, deviceId, location, filename, tags);
+		Future<?> future = executor.submit(postImage);
+		
+		try {
+			future.get(60, TimeUnit.SECONDS); 
+			return true;
+		} catch (TimeoutException ex) {
+			// handle the timeout
+			future.cancel(true);
+			return false;
+		} catch (InterruptedException e) {
+			// handle the interrupts
+			return false;
+		} catch (ExecutionException e) {
+			// handle other exceptions
+			return false;
+		}
+		
+/*		
 		Boolean success = false;
         String credentials = username + ':' + password;
         Base64 encoder = new Base64();
@@ -166,6 +311,7 @@ public class Fotaflo {
                 content.close();
 
                 // Get Response
+    			log( "Waiting for Server Response", Log.Level.Information );
                 InputStream is = uc.getInputStream();
                 BufferedReader rd = new BufferedReader(new InputStreamReader(is));
                 String line;
@@ -175,6 +321,7 @@ public class Fotaflo {
                     response.append('\r');
                 }
                 rd.close();
+                is.close();
     			log( "Server Response " + response.toString(), Log.Level.Information );
                 uc.disconnect();
     			success = true;
@@ -184,13 +331,19 @@ public class Fotaflo {
         } catch (IOException e) {
 			log( "Error uploading photo", Log.Level.Error );
         }
-        if (content != null){
-            content.close();
+        
+        try {
+	        if (content != null){
+	            content.close();
+	        }
+	        if (source != null){
+	            source.close();
+	        }
+        } catch (IOException e) {
+			log( "Error closing input/output streams", Log.Level.Error );
         }
-        if (source != null){
-            source.close();
-        }
-       return success;
+        return success;
+*/		
 	}
 
 	/** 

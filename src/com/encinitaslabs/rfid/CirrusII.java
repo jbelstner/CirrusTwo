@@ -115,7 +115,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2P-0.9.11";
+	private static final String apiVersionString = "C2P-0.9.14";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -129,14 +129,16 @@ public class CirrusII {
 	private Log.Level logLevel = Log.Level.Error;
 	private Log log = null;
 	private SelfTest bitData = null;
-	private Sensors sensors = null;
 //	private boolean motionFlag = false;
 	private boolean errorFlag = false;
 	// Timeout and retry parameters
 	private final Integer ticTime_ms = 1000;
-	private final Integer selfTestMask = 7;
-	private final Integer selfTestTime = 7;
+	private final Integer selfTestMask = 0x0F;
+	private final Integer selfTestTime = 0x0F;
+	private final Integer checkForFailedUploadsMask = 0xFFF;
+	private final Integer checkForFailedUploadsTime = 0xFFF;
 	private final Integer readerResetCount_tics = 10;
+	private Boolean checkForFailedUploads = false;
 	private Integer readerResetCounter = 0;
 	private Integer readerDelayCounter = 0;
 	private Double latitude = 0.0;
@@ -179,7 +181,6 @@ public class CirrusII {
 		// Check if we are using command line input
 		useCLI = useCLI_;
 		bitData = new SelfTest();
-		sensors = new Sensors();
 		
 		try {
 			Runtime.getRuntime().exec("/etc/init.d/ntp restart");
@@ -517,13 +518,8 @@ public class CirrusII {
     		setRfidState(RfidState.WaitingForEnd);			
 
 		} else if (responseType.contains("Inventory")) {
-			// Process one of the alternating tag lists
-			if (rfidState != RfidState.WaitingForEnd) {
-				log.makeEntry( "Received Inventory packet in the wrong state!", Log.Level.Warning);
-			} else {
-				// Process the tag data
-				processInventoryResponse(dataBuffer);						
-			}
+			// Process the tag data
+			processInventoryResponse(dataBuffer);						
 			
 		} else if (responseType.contains("End")) {
 			// Check the status word for an error
@@ -538,7 +534,7 @@ public class CirrusII {
 			// See if we need to continue to read tags
 			if (autoRepeat) {
 				readerDelayCounter = profile.getDefaultDelayTime() / ticTime_ms;
-				if (readerDelayCounter == 0) {
+				if (readerDelayCounter <= 0) {
 					try {
 						sendInventoryRequest();
 					} catch (InterruptedException e) {
@@ -663,10 +659,11 @@ public class CirrusII {
 		// Get the one tag that triggered this photo
 		String epcPlusTimestamp[] = fileToUpload.split("-");
 		try {
-			fotaflo.postImageToServer(fileToUpload, epcPlusTimestamp[0]);
-			numberOfUploads++;
-            // Delete the file once its been uploaded
-			Runtime.getRuntime().exec("rm " + fileToUpload);
+			if (fotaflo.postImageToServer(fileToUpload, epcPlusTimestamp[0])) {
+				numberOfUploads++;
+	            // Delete the file once its been uploaded
+				Runtime.getRuntime().exec("rm " + fileToUpload);
+			}
 		} catch (Exception e) {
 			log.makeEntry("Unable to upload image/tags\n" + e.toString(), Log.Level.Error);
 		}
@@ -1220,16 +1217,24 @@ public class CirrusII {
 			}
 		}
 		ticTimerCount++;
-		// Check for motion under the Smart Antenna
-		if (sensors.checkForMotion()) {
-			// Maybe do something here later
+		// Check approximately every hour for photos that failed to upload
+		if ((ticTimerCount & checkForFailedUploadsMask) == checkForFailedUploadsTime) {
+			checkForFailedUploads = true;
+		}
+		// So we don't get confused by any recently taken pictures, wait until queue is empty
+		if (checkForFailedUploads && pictureQueue.isEmpty()) {
+			checkForFailedUploads = false;
+			queueLeftoverFiles();
 		}
 		// Perform self-tests at a slower periodic rate
 		if ((ticTimerCount & selfTestMask) == selfTestTime) {
-//			motionFlag = sensors.resetMotionDetector();
-			errorFlag = bitData.performSelfTests();
+			if (bitData.performSelfTests()) {
+				errorFlag = true;
+			} else {
+				errorFlag = false;
+			}
 			// Ping the RFID Module
-			if ((rfidState == RfidState.Idle) && (rfidState != RfidState.WaitingForReset)) {
+			if ((rfidState == RfidState.Idle) && (bitData.shouldPingRfModule())) {
 				pingModule();
 			}
 			// Handle the case where we missed the END packet due to a serial port overload
@@ -1247,8 +1252,6 @@ public class CirrusII {
 				} catch (Exception e) {
 					log.makeEntry("Unable Auto Reset RFID Serial\n" + e.toString(), Log.Level.Error);
 				}
-				// Set the delay counter before we start reading again
-				readerDelayCounter = profile.getDefaultDelayTime() / ticTime_ms;
 			}
 			// Update some runtime statistics
 			try {
@@ -1266,6 +1269,10 @@ public class CirrusII {
 			try {
 				initializeRfidModuleSettings();
 				log.makeEntry("Autonomous reset complete", Log.Level.Information);
+				// Pick up where we left off
+				if (autoRepeat) {
+					sendInventoryRequest();
+				}
 			} catch (InterruptedException e) {
 				log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
 			}
@@ -1274,7 +1281,7 @@ public class CirrusII {
 		// See if we are waiting for the delay counter to count down
 		if ((rfidState != RfidState.WaitingForReset) && (readerDelayCounter > 0)) {
 			// Decrement the delay counter and start the next inventory when zero
-			if ((--readerDelayCounter == 0) && (autoRepeat)) {
+			if ((--readerDelayCounter <= 0) && (autoRepeat)) {
 				try {
 					sendInventoryRequest();
 				} catch (InterruptedException e) {
