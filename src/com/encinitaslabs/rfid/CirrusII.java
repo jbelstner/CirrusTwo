@@ -115,7 +115,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2P-0.9.14";
+	private static final String apiVersionString = "C2P-0.9.15";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -661,8 +661,6 @@ public class CirrusII {
 		try {
 			if (fotaflo.postImageToServer(fileToUpload, epcPlusTimestamp[0])) {
 				numberOfUploads++;
-	            // Delete the file once its been uploaded
-				Runtime.getRuntime().exec("rm " + fileToUpload);
 			}
 		} catch (Exception e) {
 			log.makeEntry("Unable to upload image/tags\n" + e.toString(), Log.Level.Error);

@@ -213,6 +213,9 @@ public class Fotaflo {
 	                is.close();
 	    			log( "Server Response " + response.toString(), Log.Level.Information );
 	                uc.disconnect();
+		            // Delete the file once its been uploaded
+					Runtime.getRuntime().exec("rm " + filename);
+
 	            } else {
 	    			log( filename + " does not exist!", Log.Level.Warning );
 	            }
