@@ -36,7 +36,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -133,6 +132,7 @@ public class Fotaflo {
 		private String deviceId = null;
 		private String location = null;
 		private String filename = null;
+		private String timestamp = null;
 		private String tags = null;
 		
 		public PostImage(	String username, String password,
@@ -146,6 +146,21 @@ public class Fotaflo {
 			this.location = location;
 			this.filename = filename;
 			this.tags = tags;
+			
+			// Extract the photo's timestamp
+			// The filename is in the format xxxxxxx-yyyyyyyyyyyyy.jpg
+			// Where xxxxxxx is the sub-epc and yyyyyyyyyyyyy is the millisecond timestamp
+			int beginIndex = filename.indexOf("-");
+			int endIndex = filename.indexOf(".");
+			if ((beginIndex > 0) && (endIndex > 0)) {
+				try {
+					timestamp = filename.substring(beginIndex + 1, endIndex);
+				} catch (IndexOutOfBoundsException e) {
+					timestamp = new Date().getTime() + "";
+				}
+			} else {
+				timestamp = new Date().getTime() + "";
+			}
 		}
 		
 		@Override
@@ -164,7 +179,7 @@ public class Fotaflo {
 	            uc.setRequestProperty("Authorization", "Basic " + encoding);
 	            uc.setRequestProperty("location", location);
 	            uc.setRequestProperty("filename", filename);
-	            uc.setRequestProperty("FileDate", new Date().getTime()+"");
+	            uc.setRequestProperty("FileDate", timestamp);
 	            uc.setRequestProperty("deviceId", deviceId);
 	            uc.setRequestProperty("tags", tags);
 	            uc.setRequestMethod("POST");
