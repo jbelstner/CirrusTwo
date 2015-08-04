@@ -23,23 +23,12 @@
 package com.encinitaslabs.rfid;
 
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.Date;
 
 import org.json.simple.JSONObject;
 
 public class SelfTest {
-
-	private final int TOP_PID_START = 0;
-	private final int TOP_PID_LENGTH = 5;
-	private final int TOP_CPU_START = 42;
-	private final int TOP_CPU_LENGTH = 4;
-	private final int TOP_MEM_START = 47;
-	private final int TOP_MEM_LENGTH = 4;
-	private final int TOP_MIN_LENGTH = 60;
-	private final int MEM_INFO_START = 12;
-	private final int MEM_INFO_LENGTH = 12;
 
 	private RfModuleCommHealth rfModuleCommHealth = RfModuleCommHealth.Good;
 	private Integer rfModuleCommActivityCount = 0;
@@ -48,17 +37,20 @@ public class SelfTest {
 	private Integer lastMtiStatusCode = 0;
 	private Integer mtiStatusCode = 0;
 	private Boolean pingRfModule = false;
-	private String pid = null;
 	private Long startEpoch_ms = null;
 	private Long totalMemInfoBytes = null;
 	private Long totalMemUsedBytes = null;
 	private Long totalMemFreeBytes = null;
 	private Long totalMemCachBytes = null;
 	private Long totalMemUsedPercent = null;
-	private Long totalCpuUsedPercent = null;
+	private Integer totalCpuUsedPercent = null;
 	private Long processMemUsedBytes = null;
 	private Long processMemUsedPercent = null;		
 	private Long processCpuUsedPercent = null;
+	private int user, nice, system, idle, iowait, irq, softirq, steal;
+	private int prev_user, prev_nice, prev_system, prev_idle, prev_iowait, prev_irq, prev_softirq, prev_steal;
+	private Boolean previousValuesStored = false;
+	private Log logObject = null;
 	// Threshold settings
 /*
 	private Integer ambientTempThresholdHi = null;
@@ -102,11 +94,12 @@ public class SelfTest {
 	 * SelfTest<P>
 	 * Class Constructor
 	 */
-	public SelfTest( ) {
+	public SelfTest( Log logObject_ ) {
+		// Save the Log object
+		logObject = logObject_;
+
 		// Record the start date/time
 		startEpoch_ms = new Date().getTime();		
-		// GET THE CURRENT PROCESSS INFO
-		pid = getProcessPid();
 	}
 
 	/** 
@@ -415,6 +408,7 @@ public class SelfTest {
 	 */
 	public String getBitResponseJsonObject( ) {
 		updateCpuStats();
+		updateMemStats();
 		StringBuilder result = new StringBuilder("{");
 		// UART Health
 		result.append("\"uart_comm_health\":\"" + rfModuleCommHealth.toString() + "\",");
@@ -440,6 +434,8 @@ public class SelfTest {
 	 * This method prints the BIT data to the console.
 	 */
 	public void sendBitResponseToCli( ) {
+		updateCpuStats();
+		updateMemStats();
 		// UART Health
 		System.out.println("RFID Module Comms Staus = " + rfModuleCommHealth.toString());
 		System.out.println("RFID Module Status Code = " + mtiStatusCode.toString());
@@ -543,70 +539,55 @@ public class SelfTest {
 	}
 
 	/** 
-	 * checkAccelerometer<P>
-	 * This method checks the state of the accelerometer and looks
-	 * for a change in orientation.
-	 * @return A Boolean indicating a change in position.
-	 */
-	private boolean checkAccelerometer() {
-
-		return false;
-	}
-	
-	/** 
-	 * getProcessPid<P>
-	 * This method returns the PID of the Smart Antenna Java process.
-	 */
-	private String getProcessPid( ) {
-		Process proc;
-		try {
-			proc = Runtime.getRuntime().exec("pidof -s -c java");
-			BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
-			return stdInput.readLine();
-		} catch (IOException e) {
-			System.out.println(e.toString());
-			return "0";
-		}
-	}
-
-	/** 
 	 * updateCpuStats<P>
 	 * This method updates the CPU utilization statistics.
+	 * @return True if stats were successfully updated
 	 */
 	private Boolean updateCpuStats() {
-		// Scrape a "top" command
-		totalCpuUsedPercent = (long)0;
-		processCpuUsedPercent = (long)0;
-		processMemUsedPercent = (long)0;
+		// Scrape the /proc/stat file
+		totalCpuUsedPercent = 0;
 		Process proc;
+		String command = "cat /proc/stat";
 		try {
-			proc = Runtime.getRuntime().exec("top -b -n 1");
+			proc = Runtime.getRuntime().exec(command);
 			BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
-			String line = "", PID = "";
-			Float cpu = (float) 0;
-			Float mem = (float) 0;
-			boolean headerFound = false;
+			String line = "";
 			while ((line = stdInput.readLine()) != null) {
-				if (line.length() > TOP_MIN_LENGTH) {
-					PID = line.substring(TOP_PID_START, TOP_PID_START + TOP_PID_LENGTH).trim();
-					if (!headerFound) {
-						if (PID.equalsIgnoreCase("PID")) {
-							headerFound = true;
-						}
-					} else {
-						cpu = Float.parseFloat(line.substring(TOP_CPU_START, TOP_CPU_START + TOP_CPU_LENGTH).trim());
-						if (PID.equalsIgnoreCase(pid)) {
-							processCpuUsedPercent = cpu.longValue();
-							mem = Float.parseFloat(line.substring(TOP_MEM_START, TOP_MEM_START + TOP_MEM_LENGTH).trim());
-							processMemUsedPercent = mem.longValue();
-						}
-						totalCpuUsedPercent += cpu.longValue();
+				if (line.startsWith("cpu  ")) {
+					// Scrape the individual values from the line
+					String stat[] = line.split(" +");
+					user = Integer.parseInt(stat[1]);
+					nice = Integer.parseInt(stat[2]);
+					system = Integer.parseInt(stat[3]);
+					iowait = Integer.parseInt(stat[4]);
+					irq = Integer.parseInt(stat[5]);
+					softirq = Integer.parseInt(stat[6]);
+					steal = Integer.parseInt(stat[7]);
+
+					// Need previous values to calculate stats 
+					if (previousValuesStored == true) {
+						int PrevIdle = prev_idle + prev_iowait;
+						int Idle = idle + iowait;
+						int PrevNonIdle = prev_user + prev_nice + prev_system + prev_irq + prev_softirq + prev_steal;
+						int NonIdle = user + nice + system + irq + softirq + steal;
+						int PrevTotal = PrevIdle + PrevNonIdle;
+						int Total = Idle + NonIdle;
+						totalCpuUsedPercent = (((Total-PrevTotal)-(Idle-PrevIdle)) * 100) /(Total-PrevTotal);
 					}
+					// Save the new values away for next time
+					prev_user = user;
+					prev_nice = nice;
+					prev_system = system;
+					prev_iowait = iowait;
+					prev_irq = irq;
+					prev_softirq = softirq;
+					prev_steal = steal;
+					previousValuesStored = true;
 				}
 			}
 			return true;
 		} catch (Exception e) {
-			System.out.println(e.toString());
+			log( "Unable to update CPU statistics!\n" + e.toString(), Log.Level.Error );
 			return false;
 		}
 	}
@@ -616,7 +597,7 @@ public class SelfTest {
 	 * This method updates the Memory utilization statistics.
 	 */
 	private Boolean updateMemStats() {
-		// Scrape a "cat /proc/meminfo" command
+		// Scrape the /proc/meminfo" file
 		totalMemInfoBytes = (long)0;
 		totalMemFreeBytes = (long)0;
 		totalMemCachBytes = (long)0;
@@ -627,20 +608,38 @@ public class SelfTest {
 			String line = "";
 			while ((line = stdInput.readLine()) != null) {
 				if (line.startsWith("MemTotal")) {
-					totalMemInfoBytes = Long.parseLong(line.substring(MEM_INFO_START, MEM_INFO_START + MEM_INFO_LENGTH).trim());
+					// Scrape the individual values from the line
+					String stat[] = line.split(" +");
+					totalMemInfoBytes = Long.parseLong(stat[1]);
 				}
 				if (line.startsWith("MemFree")) {
-					totalMemFreeBytes = Long.parseLong(line.substring(MEM_INFO_START, MEM_INFO_START + MEM_INFO_LENGTH).trim());
+					// Scrape the individual values from the line
+					String stat[] = line.split(" +");
+					totalMemFreeBytes = Long.parseLong(stat[1]);
 				}
 				if (line.startsWith("Cached")) {
-					totalMemCachBytes = Long.parseLong(line.substring(MEM_INFO_START, MEM_INFO_START + MEM_INFO_LENGTH).trim());
+					// Scrape the individual values from the line
+					String stat[] = line.split(" +");
+					totalMemCachBytes = Long.parseLong(stat[1]);
 				}
 			}
 			totalMemUsedBytes = totalMemInfoBytes - totalMemFreeBytes;
 			return true;
 		} catch (Exception e) {
-			System.out.println(e.toString());
+			log( "Unable to update memory statistics!\n" + e.toString(), Log.Level.Error );
 			return false;
+		}
+	}
+
+	/** 
+	 * log<P>
+	 * This method is used for making log entries.
+	 */
+	private void log(String entry, Log.Level logLevel) {
+		if (logObject != null) {
+			logObject.makeEntry(entry, logLevel);
+		} else {
+			System.out.println(entry);
 		}
 	}
 }
