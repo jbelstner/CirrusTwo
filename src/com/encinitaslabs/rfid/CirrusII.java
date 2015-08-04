@@ -115,7 +115,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2P-0.9.15";
+	private static final String apiVersionString = "C2P-0.9.16";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -180,7 +180,6 @@ public class CirrusII {
 	public CirrusII( boolean useCLI_ ) {
 		// Check if we are using command line input
 		useCLI = useCLI_;
-		bitData = new SelfTest();
 		
 		try {
 			Runtime.getRuntime().exec("/etc/init.d/ntp restart");
@@ -198,6 +197,7 @@ public class CirrusII {
 		
 		// Create the log object that we need to have
 		log = new Log(logFilename, logLevel, useCLI);
+		bitData = new SelfTest(log);
 		
 		// Initialize the various queues
 		tagEvents = new ConcurrentHashMap<String, TagData>();
@@ -656,14 +656,20 @@ public class CirrusII {
 	 * image file and uploads the record to the Fotaflo database.
 	 */
 	private void associateFileWithTagsAndUpload( String fileToUpload ) {
-		// Get the one tag that triggered this photo
-		String epcPlusTimestamp[] = fileToUpload.split("-");
-		try {
-			if (fotaflo.postImageToServer(fileToUpload, epcPlusTimestamp[0])) {
-				numberOfUploads++;
+		// Check for a camera error
+		if (fileToUpload.equalsIgnoreCase(camera.TIMEOUT)) {
+			// flush the tagEvents to allow another photo to be taken 
+			tagEvents.clear();
+		} else {
+			// Get the one tag that triggered this photo
+			String epcPlusTimestamp[] = fileToUpload.split("-");
+			try {
+				if (fotaflo.postImageToServer(fileToUpload, epcPlusTimestamp[0])) {
+					numberOfUploads++;
+				}
+			} catch (Exception e) {
+				log.makeEntry("Unable to upload image/tags\n" + e.toString(), Log.Level.Error);
 			}
-		} catch (Exception e) {
-			log.makeEntry("Unable to upload image/tags\n" + e.toString(), Log.Level.Error);
 		}
 	}
 

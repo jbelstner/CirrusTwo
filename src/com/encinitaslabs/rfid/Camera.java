@@ -45,6 +45,7 @@ public class Camera {
 	private final String version_s = "  Version: ";
 	private final String serialNumber_s = "  Serial Number: ";
 	private final String defaultName = "capt000";
+	public final String TIMEOUT = "timeout";
 	private final Integer WAIT_FOR_FILE = 30;
 	private final Integer WAIT_INTERVAL = 500;
 	private final Integer WAIT_FOR_EXEC = 200;
@@ -382,6 +383,7 @@ public class Camera {
 					Thread.sleep(1000);
     				enablePower(true);
 					Thread.sleep(6000);
+					pictureQueue.put(TIMEOUT);
 	    			log( "Camera Ready", Log.Level.Information );
 	    			break; // break out of the for loop
 			    }				        		
