@@ -36,6 +36,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 import com.encinitaslabs.rfid.cmd.CmdAntennaPortConf;
 import com.encinitaslabs.rfid.cmd.CmdHead;
+import com.encinitaslabs.rfid.cmd.CmdReaderModuleConfig;
 import com.encinitaslabs.rfid.cmd.CmdReaderModuleFirmwareAccess;
 import com.encinitaslabs.rfid.cmd.CmdTagAccess;
 import com.encinitaslabs.rfid.cmd.CmdTagProtocol;
@@ -115,7 +116,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2P-0.9.16";
+	private static final String apiVersionString = "C2P-0.9.17";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -128,16 +129,16 @@ public class CirrusII {
 	private String logFilename = null;
 	private Log.Level logLevel = Log.Level.Error;
 	private Log log = null;
-	private SelfTest bitData = null;
+	private SelfTest selfTest = null;
 //	private boolean motionFlag = false;
 	private boolean errorFlag = false;
 	// Timeout and retry parameters
 	private final Integer ticTime_ms = 1000;
-	private final Integer selfTestMask = 0x0F;
-	private final Integer selfTestTime = 0x0F;
-	private final Integer checkForFailedUploadsMask = 0xFFF;
-	private final Integer checkForFailedUploadsTime = 0xFFF;
+	private final Integer checkForFailedUploadsInterval = 1800;
 	private final Integer readerResetCount_tics = 10;
+	private final Integer selfTestInterval = 15;
+	private Integer checkForFailedUploadsCounter = 0;
+	private Integer selfTestCounter = 0;
 	private Boolean checkForFailedUploads = false;
 	private Integer readerResetCounter = 0;
 	private Integer readerDelayCounter = 0;
@@ -197,7 +198,8 @@ public class CirrusII {
 		
 		// Create the log object that we need to have
 		log = new Log(logFilename, logLevel, useCLI);
-		bitData = new SelfTest(log);
+		log.makeEntry( "Cirrus-II Photo, version " + apiVersionString, logLevel);
+		selfTest = new SelfTest(log);
 		
 		// Initialize the various queues
 		tagEvents = new ConcurrentHashMap<String, TagData>();
@@ -395,6 +397,9 @@ public class CirrusII {
 		// Set the Default Operation Mode
 		byte[] cmd1 = llcs.setOperationMode(profile.getOperationMode().getValue());
 		if (cmd1 != null) { serialCmdQueue.put(cmd1); }
+		if (profile.getOperationMode() == CmdReaderModuleConfig.OperationMode.Continuous) {
+			selfTest.setRfModuleWatchDog(false);
+		}
 
 		// Set the Default Link Profile
 		byte[] cmd2 = llcs.setCurrentLinkProfile(profile.getLinkProfile().byteValue());
@@ -452,7 +457,7 @@ public class CirrusII {
 	private void processSerialResponse( byte[] dataBuffer ) {
 		String responseType = MtiCmd.getCommandType(dataBuffer[MtiCmd.TYPE_INDEX]);
 		CmdHead response = MtiCmd.getCmdHead(dataBuffer);
-		bitData.rfModuleCommActivity();
+		selfTest.rfModuleCommActivity();
 
 		// Log what we received
 		if (responseType.contains("Response")) {
@@ -492,9 +497,9 @@ public class CirrusII {
 			} else if (response.name().contains("RFID_EngGetTemperature") && !testModeResponsePending) {
 				Short temperature = MtiCmd.getShort(dataBuffer, MtiCmd.RESP_DATA_INDEX + 1);
 				if (testModeCommandSelect.intValue() == 0) {
-					bitData.setRfModuleTemp(Integer.toString(temperature));
+					selfTest.setRfModuleTemp(Integer.toString(temperature));
 				} else {
-					bitData.setAmbientTemp(Integer.toString(temperature));
+					selfTest.setAmbientTemp(Integer.toString(temperature));
 				}
 	    		setRfidState(RfidState.Idle);
 
@@ -525,7 +530,7 @@ public class CirrusII {
 			// Check the status word for an error
 			int status = MtiCmd.getCmdEndStatus(dataBuffer);
 			if (status != 0) {
-				bitData.setMtiStatusCode(status);
+				selfTest.setMtiStatusCode(status);
 				log.makeEntry("MTI MAC Firmware Error Code: 0x" + Integer.toHexString(status), Log.Level.Error);
 				sendClearError();
 			}
@@ -1157,7 +1162,7 @@ public class CirrusII {
 		} else if (method.equalsIgnoreCase("camera_config")) {
 			showFotafloConfig();
 		} else if (method.equalsIgnoreCase("run_bit")) {
-			bitData.sendBitResponseToCli();
+			selfTest.sendBitResponseToCli();
 		} else if (	method.equalsIgnoreCase("reset") ) {
 			try {
 				// Close and reopen the serial port
@@ -1222,7 +1227,8 @@ public class CirrusII {
 		}
 		ticTimerCount++;
 		// Check approximately every hour for photos that failed to upload
-		if ((ticTimerCount & checkForFailedUploadsMask) == checkForFailedUploadsTime) {
+		if (checkForFailedUploadsCounter++ > checkForFailedUploadsInterval) {
+			checkForFailedUploadsCounter = 0;
 			checkForFailedUploads = true;
 		}
 		// So we don't get confused by any recently taken pictures, wait until queue is empty
@@ -1231,18 +1237,31 @@ public class CirrusII {
 			queueLeftoverFiles();
 		}
 		// Perform self-tests at a slower periodic rate
-		if ((ticTimerCount & selfTestMask) == selfTestTime) {
-			if (bitData.performSelfTests()) {
+		if (selfTestCounter++ > selfTestInterval) {
+			selfTestCounter = 0;
+			if (selfTest.performSelfTests()) {
 				errorFlag = true;
 			} else {
 				errorFlag = false;
 			}
-			// Ping the RFID Module
-			if ((rfidState == RfidState.Idle) && (bitData.shouldPingRfModule())) {
-				pingModule();
+			// Check for no RFID Module inactivity
+			if (selfTest.shouldPingRfModule()) {
+				// Force the state back to idle
+				setRfidState(RfidState.Idle);
+				// Either send another inventory request
+				if ((readerDelayCounter <= 0) && (autoRepeat)) {
+					try {
+						sendInventoryRequest();
+					} catch (InterruptedException e) {
+						log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+					}
+				} else {
+					// or ping the module
+					pingModule();
+				}
 			}
 			// Handle the case where we missed the END packet due to a serial port overload
-			if ((rfidState != RfidState.WaitingForReset) && (bitData.getRfModuleCommHealth().contains("Bad"))) {
+			if ((rfidState != RfidState.WaitingForReset) && (selfTest.getRfModuleCommHealth().contains("Bad"))) {
 				try {
 					// Close and reopen the serial port
 					if ((serialComms != null) && serialComms.isConnected()) {
@@ -2570,10 +2589,10 @@ public class CirrusII {
 			Short temperature = MtiCmd.getShort(dataBuffer, MtiCmd.RESP_DATA_INDEX + 1);
 			if (testModeCommandSelect.intValue() == 0) {
 				System.out.println("PA Temperature = " + Integer.toString(temperature) + " C");
-				bitData.setRfModuleTemp(Integer.toString(temperature));
+				selfTest.setRfModuleTemp(Integer.toString(temperature));
 			} else {
 				System.out.println("Ambient Temperature = " + Integer.toString(temperature) + " C");
-				bitData.setAmbientTemp(Integer.toString(temperature));
+				selfTest.setAmbientTemp(Integer.toString(temperature));
 			}
 			System.out.println("\n");
 

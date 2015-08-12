@@ -31,11 +31,12 @@ import org.json.simple.JSONObject;
 public class SelfTest {
 
 	private RfModuleCommHealth rfModuleCommHealth = RfModuleCommHealth.Good;
-	private Integer rfModuleCommActivityCount = 0;
+	private Integer rfModulePacketCount = 0;
 	private Integer ambientTemperature = null;
 	private Integer rfModuleTemperature = null;
 	private Integer lastMtiStatusCode = 0;
 	private Integer mtiStatusCode = 0;
+	private Boolean rfModuleWatchDog = true;
 	private Boolean pingRfModule = false;
 	private Long startEpoch_ms = null;
 	private Long totalMemInfoBytes = null;
@@ -109,9 +110,7 @@ public class SelfTest {
 	 * @return A Boolean.
 	 */
 	public Boolean shouldPingRfModule() {
-		Boolean ping = pingRfModule;
-		pingRfModule = false;
-		return ping;
+		return pingRfModule;
 	}
 
 	/** 
@@ -126,16 +125,23 @@ public class SelfTest {
 	}
 
 	/** 
-	 * getRfModuleTemp<P>
-	 * This method returns the current RF Module Temp in C.
+	 * getRfModuleWatchDog<P>
+	 * This method returns the current RF Module WatcgDog state.
 	 * A value of null indicates an uninitialized value.
-	 * @return A String.
+	 * @return A Boolean.
 	 */
-	public String getRfModuleTemp() {
-		if (rfModuleTemperature == null) {
-			return null;
-		} else {
-			return rfModuleTemperature.toString();
+	public Boolean getRfModuleWatchDog() {
+		return rfModuleWatchDog;
+	}
+
+	/** 
+	 * setRfModuleWatchDog<P>
+	 * This method sets the current RF Module WatcgDog state.
+	 * @param rfModuleWatchDog_ A Boolean.
+	 */
+	public void setRfModuleWatchDog(Boolean rfModuleWatchDog_) {
+		if (rfModuleWatchDog_ != null) {
+			rfModuleWatchDog = rfModuleWatchDog_;
 		}
 	}
 
@@ -341,19 +347,16 @@ public class SelfTest {
 		totalMemUsedPercent = totalMemUsedBytes * 100 / totalMemInfoBytes;
 */		
 		// Check for serial activity since the last self test
-		if (rfModuleCommActivityCount == 0) {
-			if (!pingRfModule) {
+		if (rfModuleWatchDog && (rfModulePacketCount == 0)) {
+			if (pingRfModule == false) {
+				// Try to ping the RF module this time
 				pingRfModule = true;
 			} else {
-				// We have a fault
+				// Otherwise we have a fault
 				rfModuleCommHealth = RfModuleCommHealth.Bad;
-				pingRfModule = false;
 			}
-		} else {
-			rfModuleCommHealth = RfModuleCommHealth.Good;
-			pingRfModule = false;
 		}
-		rfModuleCommActivityCount = 0;
+		rfModulePacketCount = 0;
 		bRfModuleFwError = (getMtiStatusCode() != 0);
 		
 		// Perform other checks against set thresholds
@@ -399,7 +402,9 @@ public class SelfTest {
 	 * 
 	 */
 	public void rfModuleCommActivity() {
-		rfModuleCommActivityCount++;
+		rfModulePacketCount++;
+		pingRfModule = false;
+		rfModuleCommHealth = RfModuleCommHealth.Good;
 	}
 
 	/** 
