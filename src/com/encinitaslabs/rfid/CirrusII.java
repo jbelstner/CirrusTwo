@@ -116,7 +116,7 @@ public class CirrusII {
 	private Integer numberOfUploads = 0;
 	private Integer numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2P-0.9.17";
+	private static final String apiVersionString = "C2P-0.9.18";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -488,6 +488,7 @@ public class CirrusII {
 			// Process the receipt of a Response packets
 			if (rfidState != RfidState.WaitingForResponse) {
 				log.makeEntry( "Received Response packet in the wrong state!", Log.Level.Warning);
+	    		setRfidState(RfidState.WaitingForResponse);
 			}
 			// Specific Response packet processing
 			if (response.name().contains("RFID_MacGetFirmwareVersion") && !testModeResponsePending) {
@@ -508,6 +509,7 @@ public class CirrusII {
 				if (errorCode != 0) {
 					log.makeEntry( "Last MTI MAC Firmware Error Code: 0x" + Integer.toHexString(errorCode), Log.Level.Error);
 				}
+	    		setRfidState(RfidState.Idle);
 
 			} else if (testModeResponsePending) {
 				processTestModeResponses(response, dataBuffer);
@@ -523,6 +525,9 @@ public class CirrusII {
     		setRfidState(RfidState.WaitingForEnd);			
 
 		} else if (responseType.contains("Inventory")) {
+			if (rfidState != RfidState.WaitingForEnd) {
+	    		setRfidState(RfidState.WaitingForEnd);
+			}
 			// Process the tag data
 			processInventoryResponse(dataBuffer);						
 			
