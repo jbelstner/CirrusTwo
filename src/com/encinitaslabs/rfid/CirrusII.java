@@ -31,6 +31,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -78,13 +80,13 @@ public class CirrusII {
 	private ArrayList<AntennaPort> antennaPorts = null;
 	private String profileFilename = "Default.conf";
 	private Llcs llcs = null;
-	private Byte testModeCommandSelect = 0;
-	private Boolean testModeResponsePending = false;
-	private Integer numPhysicalPorts = 2;
+	private byte testModeCommandSelect = 0;
+	private boolean testModeResponsePending = false;
+	private int numPhysicalPorts = 2;
 	// Serial Port parameters
 	private SerialComms serialComms = null;
 	private String rfidCommPort = "/dev/ttyS0";
-	private Integer rfidBaudRate = 115200;
+	private int rfidBaudRate = 115200;
 	private String moduleType = "RU861";
 	private LinkedBlockingQueue<byte[]> serialCmdQueue = null;
 	private LinkedBlockingQueue<byte[]> serialRspQueue = null;
@@ -92,8 +94,8 @@ public class CirrusII {
 	// Tag Data parameters
 	private ConcurrentHashMap<String, TagData> tagEvents = null;
 	private ConcurrentHashMap<String, TagData> tagDatabase = null;
-	private Boolean tagPresent = false;
-	private Boolean autoRepeat = false;
+	private boolean tagPresent = false;
+	private boolean autoRepeat = false;
 	// Fotaflo parameters
 	private final int MIN_LENGTH_FILENAME = 20;
 	private LinkedBlockingQueue<String> pictureQueue = null;
@@ -106,44 +108,47 @@ public class CirrusII {
 	private String location = null;
 	private String imageFormat = "SmallNormal";
 	private String shotsPerTrigger = "1";
-	private Integer epcLast = null;
-	private Integer epcFirst = null;
-	private Integer triggersPerEvent = 3;
-	private Integer triggerInterval_sec = 5;
-	private Integer eventTimeout_sec = 900;
+	private int epcFirst = 0;
+	private int epcLast = 7;
+	private int triggersPerEvent = 3;
+	private int triggerInterval_sec = 5;
+	private int eventTimeout_sec = 900;
 	// Statistics
-	private Integer numberOfTriggers = 0;
-	private Integer numberOfUploads = 0;
-	private Integer numberOfUnique = 0;
+	private int numberOfTriggers = 0;
+	private int numberOfUploads = 0;
+	private int numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2P-0.9.18";
+	private static final String apiVersionString = "C2P-0.9.19";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
-	private Boolean testMode = false;
-	private Boolean serialDebug = false;
+	private boolean testMode = false;
+	private boolean serialDebug = false;
 	private String sipVersionString = " ";
 	private LedControl led = null;
-	private Boolean useCLI = true;
-	private Integer ticTimerCount = 0;
+	private boolean useCLI = true;
+	private int ticTimerCount = 0;
 	private String logFilename = null;
 	private Log.Level logLevel = Log.Level.Error;
 	private Log log = null;
-	private SelfTest selfTest = null;
+	private BuiltInSelfTest bist = null;
 //	private boolean motionFlag = false;
 	private boolean errorFlag = false;
 	// Timeout and retry parameters
-	private final Integer ticTime_ms = 1000;
-	private final Integer checkForFailedUploadsInterval = 1800;
-	private final Integer readerResetCount_tics = 10;
-	private final Integer selfTestInterval = 15;
-	private Integer checkForFailedUploadsCounter = 0;
-	private Integer selfTestCounter = 0;
-	private Boolean checkForFailedUploads = false;
-	private Integer readerResetCounter = 0;
-	private Integer readerDelayCounter = 0;
-	private Double latitude = 0.0;
-	private Double longitude = 0.0;
+	private Timer bistTimer = null;
+	private Timer interScanTimer = null;
+	private Timer powerOnTimer = null;
+	private Timer uploadRetryTimer = null;
+	private Timer tagEventAgeTimer = null;
+	private Timer moduleResetTimer = null;
+	private int bistTimeInterval_ms = 15000;
+	private int powerOnTimeInterval_ms = 7000;
+	private int uploadRetryInterval_ms = 600000;
+	private int tagDataTimeInterval_ms = 1000;
+	private int moduleResetWait_ms = 10000;
+
+	private double latitude = 0.0;
+	private double longitude = 0.0;
 	
 	/** 
 	 * main
@@ -199,7 +204,7 @@ public class CirrusII {
 		// Create the log object that we need to have
 		log = new Log(logFilename, logLevel, useCLI);
 		log.makeEntry( "Cirrus-II Photo, version " + apiVersionString, logLevel);
-		selfTest = new SelfTest(log);
+		bist = new BuiltInSelfTest(log);
 		
 		// Initialize the various queues
 		tagEvents = new ConcurrentHashMap<String, TagData>();
@@ -216,7 +221,6 @@ public class CirrusII {
 		fotaflo.setCredentials(username, password);
 		fotaflo.setUploadUrl(photoUrl);
 		// Initially turn the power off
-		camera.enablePower(false);
 		camera.setImageFormat(imageFormat);
 		camera.setShotsPerTrigger(shotsPerTrigger);
 
@@ -340,25 +344,219 @@ public class CirrusII {
 		};
 		serialRspWorker.start();
 
-		// MANAGE THE TIC-TIMER
-		Thread timerWorker = new Thread () {
-			public void run() {
-				while ( true ) {
-					try {
-						Thread.sleep(ticTime_ms);
-					} catch (InterruptedException e) {
-						log.makeEntry("Error sleeping\n" + e.toString(), Log.Level.Error);
-					}
-					processTicTimer();
-				}
-			}
-		};
-		timerWorker.start();
+		// Start recurring timers
+		startBistTimer(bistTimeInterval_ms);
+		startUploadRetryTimer(uploadRetryInterval_ms);
+		startTagEventAgeTimer(tagDataTimeInterval_ms);
+		startPowerOnTimer(powerOnTimeInterval_ms);
+		// Upload any leftover pictures from last time
+		camera.enablePower(true);
+		queueLeftoverFiles();
 
 		// Give the user some help
 		if (useCLI) {
 			showTestModeOffCommands();
 		}		
+	}
+
+	/** 
+	 * startBistTimer<P>
+	 * This method sets the Built-In-Self-Test (BIST) time interval to the
+	 * specified value. If the timer is already running, it first stops it
+	 * and then starts it up again with the new interval.
+	 * @param timeInterval_ms The recurring time interval in milliseconds
+	 */
+	private void startBistTimer( int timeInterval_ms ) {
+		if (bistTimer != null) {
+			bistTimer.cancel();
+		}
+		bistTimer = new Timer();
+		bistTimer.scheduleAtFixedRate(new BistTimerTask(), timeInterval_ms, timeInterval_ms);
+	}	
+	
+	/** 
+	 * BistTimerTask<P>
+	 * This recurring timer handles the execution of Built In Self Test (BIST).
+	 */
+	class BistTimerTask extends TimerTask {
+
+		@Override
+		public void run() {
+			
+			if (bist.performSelfTests()) {
+				errorFlag = true;
+			} else {
+				errorFlag = false;
+			}
+
+			// See if we need to Ping the RFID Module
+			if ((rfidState == RfidState.Idle) && bist.shouldPingRfModule()) {
+				if (autoRepeat) {
+					startInterScanTimer(profile.getDefaultDelayTime());
+				} else {
+					// or ping the module
+					pingModule();
+				}
+			}
+
+			// Handle the case where the HP-SiP goes off in the weeds
+			if ((rfidState != RfidState.WaitingForReset) && ("Bad".equals(bist.getRfModuleCommHealth()))) {
+				resetDevice();
+			}
+
+			// Update some runtime statistics
+			try {
+				updateStatistics();
+			} catch (Exception e) {
+				log.makeEntry( "Unable to update statistics\n" + e.toString(), Log.Level.Error );
+			}
+		}
+	}
+	
+	
+	/** 
+	 * startPowerOnTimer<P>
+	 * @param timeInterval_ms The time interval in milliseconds
+	 */
+	private void startPowerOnTimer( int timeInterval_ms ) {
+		if (powerOnTimer != null) {
+			powerOnTimer.cancel();
+		}
+		powerOnTimer = new Timer();
+		powerOnTimer.schedule(new PowerOnTimerTask(), timeInterval_ms);
+	}	
+	
+	/** 
+	 * PowerOnTimerTask<P>
+	 */
+	class PowerOnTimerTask extends TimerTask {
+
+		@Override
+		public void run() {
+			camera.updateImageFormat();
+			if (!useCLI) {
+				autoRepeat = true;
+				startInterScanTimer(profile.getDefaultDelayTime());
+			}
+		}
+	}
+
+	/** 
+	 * startInterScanTimer<P>
+	 * @param timeInterval_ms The time interval in milliseconds
+	 */
+	private void startInterScanTimer( int timeInterval_ms ) {
+		if (interScanTimer != null) {
+			interScanTimer.cancel();
+		}
+		interScanTimer = new Timer();
+		interScanTimer.schedule(new InterScanTimerTask(), timeInterval_ms);
+	}	
+	
+	/** 
+	 * InterScanTimerTask<P>
+	 */
+	class InterScanTimerTask extends TimerTask {
+
+		@Override
+		public void run() {
+			try {
+				sendInventoryRequest();
+			} catch (InterruptedException e) {
+				log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+			}
+		}
+	}
+
+	/** 
+	 * startUploadRetryTimer<P>
+	 * @param timeInterval_ms The recurring time interval in milliseconds
+	 */
+	private void startUploadRetryTimer( int timeInterval_ms ) {
+		if (uploadRetryTimer != null) {
+			uploadRetryTimer.cancel();
+		}
+		uploadRetryTimer = new Timer();
+		uploadRetryTimer.scheduleAtFixedRate(new UploadRetryTimerTask(), timeInterval_ms, timeInterval_ms);
+	}	
+	
+	/** 
+	 * UploadRetryTimerTask<P>
+	 */
+	class UploadRetryTimerTask extends TimerTask {
+
+		@Override
+		public void run() {
+			queueLeftoverFiles();
+		}
+	}
+
+	/** 
+	 * startTagEventAgeTimer<P>
+	 * @param timeInterval_ms The recurring time interval in milliseconds
+	 */
+	private void startTagEventAgeTimer( int timeInterval_ms ) {
+		if (tagEventAgeTimer != null) {
+			tagEventAgeTimer.cancel();
+		}
+		tagEventAgeTimer = new Timer();
+		tagEventAgeTimer.scheduleAtFixedRate(new TagEventAgeTimerTask(), timeInterval_ms, timeInterval_ms);
+	}	
+	
+	/** 
+	 * TagEventAgeTimerTask<P>
+	 */
+	class TagEventAgeTimerTask extends TimerTask {
+
+		@Override
+		public void run() {
+
+			try {
+				ageTagEvents();
+			} catch (NullPointerException npe) {
+				log.makeEntry("Unable to age tag database\n" + npe.toString(), Log.Level.Error);
+			}
+			updateVisualIndicator();
+		}
+	}
+
+	/** 
+	 * startModuleResetTimer<P>
+	 * This method sets the delay time after a module reset to the
+	 * specified value. If the timer is already running, it first stops it
+	 * and then starts it up again with the new interval.
+	 * @param timeInterval_ms The recurring time interval in milliseconds
+	 */
+	private void startModuleResetTimer( int timeInterval_ms ) {
+		if (moduleResetTimer != null) {
+			moduleResetTimer.cancel();
+		}
+		moduleResetTimer = new Timer();
+		moduleResetTimer.schedule(new ModuleResetTimerTask(), timeInterval_ms);
+	}	
+	
+	/** 
+	 * ModuleResetTimerTask<P>
+	 * This timer handles HP-SiP post reset activities.
+	 */
+	class ModuleResetTimerTask extends TimerTask {
+
+		@Override
+		public void run() {
+			
+			if (rfidState == RfidState.WaitingForReset) {
+				setRfidState(RfidState.Idle);
+				try {
+					initializeRfidModuleSettings();
+				} catch (InterruptedException e) {
+					log.makeEntry("Unable to initialize RFID module settings!  " + e.toString(), Log.Level.Error);
+				}
+				// Pick up where we left off
+				if (autoRepeat) {
+					startInterScanTimer(profile.getDefaultDelayTime());
+				}
+			}
+		}
 	}
 
 	/** 
@@ -398,7 +596,7 @@ public class CirrusII {
 		byte[] cmd1 = llcs.setOperationMode(profile.getOperationMode().getValue());
 		if (cmd1 != null) { serialCmdQueue.put(cmd1); }
 		if (profile.getOperationMode() == CmdReaderModuleConfig.OperationMode.Continuous) {
-			selfTest.setRfModuleWatchDog(false);
+			bist.setRfModuleWatchDog(false);
 		}
 
 		// Set the Default Link Profile
@@ -457,7 +655,7 @@ public class CirrusII {
 	private void processSerialResponse( byte[] dataBuffer ) {
 		String responseType = MtiCmd.getCommandType(dataBuffer[MtiCmd.TYPE_INDEX]);
 		CmdHead response = MtiCmd.getCmdHead(dataBuffer);
-		selfTest.rfModuleCommActivity();
+		bist.rfModuleCommActivity();
 
 		// Log what we received
 		if (responseType.contains("Response")) {
@@ -497,10 +695,10 @@ public class CirrusII {
 				
 			} else if (response.name().contains("RFID_EngGetTemperature") && !testModeResponsePending) {
 				Short temperature = MtiCmd.getShort(dataBuffer, MtiCmd.RESP_DATA_INDEX + 1);
-				if (testModeCommandSelect.intValue() == 0) {
-					selfTest.setRfModuleTemp(Integer.toString(temperature));
+				if (testModeCommandSelect == 0) {
+					bist.setRfModuleTemp(Integer.toString(temperature));
 				} else {
-					selfTest.setAmbientTemp(Integer.toString(temperature));
+					bist.setAmbientTemp(Integer.toString(temperature));
 				}
 	    		setRfidState(RfidState.Idle);
 
@@ -535,7 +733,7 @@ public class CirrusII {
 			// Check the status word for an error
 			int status = MtiCmd.getCmdEndStatus(dataBuffer);
 			if (status != 0) {
-				selfTest.setMtiStatusCode(status);
+				bist.setMtiStatusCode(status);
 				log.makeEntry("MTI MAC Firmware Error Code: 0x" + Integer.toHexString(status), Log.Level.Error);
 				sendClearError();
 			}
@@ -543,14 +741,7 @@ public class CirrusII {
     		setRfidState(RfidState.Idle);
 			// See if we need to continue to read tags
 			if (autoRepeat) {
-				readerDelayCounter = profile.getDefaultDelayTime() / ticTime_ms;
-				if (readerDelayCounter <= 0) {
-					try {
-						sendInventoryRequest();
-					} catch (InterruptedException e) {
-						log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
-					}									
-				}
+				startInterScanTimer(profile.getDefaultDelayTime());
 			}
 
 		} else if (responseType.contains("Access")) {
@@ -609,7 +800,6 @@ public class CirrusII {
 	
 	/** 
 	 * ageTagDatabase<P>
-	 * This method ages the tag database based on EVENT_TIMEOUT_SEC
 	 */
 	private void ageTagEvents( ) throws NullPointerException {
 		// Iterate through the entire ArrayList of tags
@@ -636,7 +826,7 @@ public class CirrusII {
 	 * uploadLeftoverPictures<P>
 	 * This method attempts to upload any stored pictures.
 	 */
-	private Boolean queueLeftoverFiles() {
+	private boolean queueLeftoverFiles() {
 		Integer oldFiles = 0;
 		// Scrape the command line
 		Process proc;
@@ -1167,22 +1357,9 @@ public class CirrusII {
 		} else if (method.equalsIgnoreCase("camera_config")) {
 			showFotafloConfig();
 		} else if (method.equalsIgnoreCase("run_bit")) {
-			selfTest.sendBitResponseToCli();
+			bist.sendBitResponseToCli();
 		} else if (	method.equalsIgnoreCase("reset") ) {
-			try {
-				// Close and reopen the serial port
-				if ((serialComms != null) && serialComms.isConnected()) {
-					serialComms.disconnect();
-					serialComms = new SerialComms(serialRspQueue, serialDebug);
-					serialComms.setLogObject(log);
-					serialComms.connect(rfidCommPort, rfidBaudRate);
-				}
-				sendSoftReset();
-			} catch (InterruptedException e) {
-				log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
-			} catch (Exception e) {
-				log.makeEntry("Unable to re-open " + rfidCommPort + "\n" + e.toString(), Log.Level.Error);
-			}
+			resetDevice();
 			
 		} else if (method.equalsIgnoreCase("log_level") && (cmd.length == 2)) {
 			try {
@@ -1206,130 +1383,6 @@ public class CirrusII {
 		}
 	}
 
-	/** 
-	 * processTicTimer<P>
-	 * This method does tic timer things.
-	 */
-	private void processTicTimer() {
-		// Autonomous power on things for Fotaflo
-		if (ticTimerCount == 1) {
-			// Turn on the camera
-			camera.enablePower(true);
-			// Upload any leftover pictures from last time
-			queueLeftoverFiles();
-		} else if (ticTimerCount == 7) {
-			camera.requestCameraInfo();
-			camera.updateImageFormat();
-		} else if (ticTimerCount == 10) {
-			if (!useCLI) {
-				try {
-					autoRepeat = true;
-					sendInventoryRequest();
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
-				}				
-			}
-		}
-		ticTimerCount++;
-		// Check approximately every hour for photos that failed to upload
-		if (checkForFailedUploadsCounter++ > checkForFailedUploadsInterval) {
-			checkForFailedUploadsCounter = 0;
-			checkForFailedUploads = true;
-		}
-		// So we don't get confused by any recently taken pictures, wait until queue is empty
-		if (checkForFailedUploads && pictureQueue.isEmpty()) {
-			checkForFailedUploads = false;
-			queueLeftoverFiles();
-		}
-		// Perform self-tests at a slower periodic rate
-		if (selfTestCounter++ > selfTestInterval) {
-			selfTestCounter = 0;
-			if (selfTest.performSelfTests()) {
-				errorFlag = true;
-			} else {
-				errorFlag = false;
-			}
-			// Check for no RFID Module inactivity
-			if (selfTest.shouldPingRfModule()) {
-				// Force the state back to idle
-				setRfidState(RfidState.Idle);
-				// Either send another inventory request
-				if ((readerDelayCounter <= 0) && (autoRepeat)) {
-					try {
-						sendInventoryRequest();
-					} catch (InterruptedException e) {
-						log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
-					}
-				} else {
-					// or ping the module
-					pingModule();
-				}
-			}
-			// Handle the case where we missed the END packet due to a serial port overload
-			if ((rfidState != RfidState.WaitingForReset) && (selfTest.getRfModuleCommHealth().contains("Bad"))) {
-				try {
-					// Close and reopen the serial port
-					if ((serialComms != null) && serialComms.isConnected()) {
-						serialComms.disconnect();
-						serialComms = new SerialComms(serialRspQueue, serialDebug);
-						serialComms.setLogObject(log);
-						serialComms.connect(rfidCommPort, rfidBaudRate);
-					}
-					sendSoftReset();
-					log.makeEntry("Resetting due to comms error!", Log.Level.Warning);
-				} catch (Exception e) {
-					log.makeEntry("Unable Auto Reset RFID Serial\n" + e.toString(), Log.Level.Error);
-				}
-			}
-			// Update some runtime statistics
-			try {
-				updateStatistics();
-			} catch (Exception e) {
-				log.makeEntry( "Unable to update statistics\n" + e.toString(), Log.Level.Error );
-			}
-		}
-		
-		// See if we are waiting for the reader module to finish resetting
-		if ((rfidState == RfidState.WaitingForReset) && (++readerResetCounter >= readerResetCount_tics)) {
-			readerResetCounter = 0;
-			ticTimerCount = 0;
-			setRfidState(RfidState.Idle);
-			try {
-				initializeRfidModuleSettings();
-				log.makeEntry("Autonomous reset complete", Log.Level.Information);
-				// Pick up where we left off
-				if (autoRepeat) {
-					sendInventoryRequest();
-				}
-			} catch (InterruptedException e) {
-				log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
-			}
-		}
-		
-		// See if we are waiting for the delay counter to count down
-		if ((rfidState != RfidState.WaitingForReset) && (readerDelayCounter > 0)) {
-			// Decrement the delay counter and start the next inventory when zero
-			if ((--readerDelayCounter <= 0) && (autoRepeat)) {
-				try {
-					sendInventoryRequest();
-				} catch (InterruptedException e) {
-					log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
-				}
-			}
-		}
-
-		// Update the LED state
-		updateVisualIndicator();
-		// Reset the tag present flag
-		tagPresent = false;
-		// Age the tag events
-		try {
-			ageTagEvents();
-		} catch (NullPointerException npe) {
-			log.makeEntry("Unable to age tag database\n" + npe.toString(), Log.Level.Error);
-		}
-	}
-	
 	/** 
 	 * sendInventoryRequest<P>
 	 * This method sends an Inventory command to RFID module.
@@ -1371,10 +1424,12 @@ public class CirrusII {
 	 * @throws InterruptedException 
 	 */
 	private Boolean sendSoftReset() throws InterruptedException {
-		readerResetCounter = 0;
 		serialCmdQueue.clear();
 		setRfidState(RfidState.WaitingForReset);
 		byte[] cmd = llcs.controlSoftReset();
+		
+		startModuleResetTimer(moduleResetWait_ms);
+
 		// Send the packet out the serial port immediately
 		if (cmd != null) {
 			serialComms.serialWrite(cmd, cmd.length);
@@ -1503,7 +1558,7 @@ public class CirrusII {
 	 * @param newBaudRate The new BAUD_RATE parameter.
 	 * @throws IOException 
 	 */
-	private Boolean updateBaudRateInConfigFile(String filename, Integer newBaudRate) {
+	private Boolean updateBaudRateInConfigFile(String filename, int newBaudRate) {
 	    try {
 	        // Read the config file content to the String "config"
 	        BufferedReader file = new BufferedReader(new FileReader(filename));
@@ -1515,8 +1570,8 @@ public class CirrusII {
 
 	        // Replace old baud rate value with new baud rate value
 	    	log.makeEntry("Updating BAUD_RATE in " + filename, Log.Level.Information);
-	    	String oldEntry = "BAUD_RATE " + rfidBaudRate.toString();
-	    	String newEntry = "BAUD_RATE " + newBaudRate.toString();
+	    	String oldEntry = "BAUD_RATE " + rfidBaudRate;
+	    	String newEntry = "BAUD_RATE " + newBaudRate;
 	    	log.makeEntry("Old: " + oldEntry, Log.Level.Information);
 	    	log.makeEntry("New: " + newEntry, Log.Level.Information);
 	        config = config.replace(oldEntry, newEntry);
@@ -2151,13 +2206,13 @@ public class CirrusII {
 						
 		} else if ((command.startsWith("test_get_temp")) && (cli.length >= 2) && moduleType.startsWith("HPSIP")) {
 			testModeCommandSelect = Byte.decode(cli[1]);
-			byte[] cmd = llcs.testGetTemperature(testModeCommandSelect.byteValue());
+			byte[] cmd = llcs.testGetTemperature(testModeCommandSelect);
 			if (cmd != null) { serialCmdQueue.put(cmd); }
 			else { System.out.println("Invalid parameter or format for " + cli[0]); }
 						
 		} else if ((command.startsWith("test_get_rf_power")) && (cli.length >= 2) && moduleType.startsWith("HPSIP")) {
 			testModeCommandSelect = Byte.decode(cli[1]);
-			byte[] cmd = llcs.testGetRFPower(testModeCommandSelect.byteValue());
+			byte[] cmd = llcs.testGetRFPower(testModeCommandSelect);
 			if (cmd != null) { serialCmdQueue.put(cmd); }
 			else { System.out.println("Invalid parameter or format for " + cli[0]); }
 						
@@ -2347,7 +2402,7 @@ public class CirrusII {
 			System.out.println("\n");
 
 		} else if (response.name().contains("RFID_18K6CGetCurrentSingulationAlgorithmParameters")) {
-			if (testModeCommandSelect.intValue() == 0) {
+			if (testModeCommandSelect == 0) {
 				Byte qValue = dataBuffer[MtiCmd.RESP_DATA_INDEX + 1];
 				Byte retries = dataBuffer[MtiCmd.RESP_DATA_INDEX + 2];
 				Byte toggle = dataBuffer[MtiCmd.RESP_DATA_INDEX + 3];
@@ -2592,19 +2647,19 @@ public class CirrusII {
 
 		} else if (response.name().contains("RFID_EngGetTemperature")) {
 			Short temperature = MtiCmd.getShort(dataBuffer, MtiCmd.RESP_DATA_INDEX + 1);
-			if (testModeCommandSelect.intValue() == 0) {
+			if (testModeCommandSelect == 0) {
 				System.out.println("PA Temperature = " + Integer.toString(temperature) + " C");
-				selfTest.setRfModuleTemp(Integer.toString(temperature));
+				bist.setRfModuleTemp(Integer.toString(temperature));
 			} else {
 				System.out.println("Ambient Temperature = " + Integer.toString(temperature) + " C");
-				selfTest.setAmbientTemp(Integer.toString(temperature));
+				bist.setAmbientTemp(Integer.toString(temperature));
 			}
 			System.out.println("\n");
 
 		} else if (response.name().contains("RFID_EngGetRFPower")) {
 			Short powerLevel = MtiCmd.getShort(dataBuffer, MtiCmd.RESP_DATA_INDEX + 1);
 			Float dBm = powerLevel.floatValue() / 10;
-			if (testModeCommandSelect.intValue() == 0) {
+			if (testModeCommandSelect == 0) {
 				System.out.println("Forward Power = " + dBm.toString() + " dBm");					
 			} else {
 				System.out.println("Reverse Power = " + dBm.toString() + " dBm");					
@@ -2617,6 +2672,27 @@ public class CirrusII {
 	}
 
 	/** 
+	 * resetDevice<P>
+	 * This method performs a reset of the HP-SiP and Serial interface.
+	 */
+	private void resetDevice() {
+		try {
+			// Close and reopen the serial port
+			if ((serialComms != null) && serialComms.isConnected()) {
+				serialComms.disconnect();
+				serialComms = new SerialComms(serialRspQueue, serialDebug);
+				serialComms.setLogObject(log);
+				serialComms.connect(rfidCommPort, rfidBaudRate);
+			}
+			sendSoftReset();
+		} catch (InterruptedException e) {
+			log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
+		} catch (Exception e) {
+			log.makeEntry("Unable to re-open " + rfidCommPort + "\n" + e.toString(), Log.Level.Error);
+		}
+	}
+
+	/** 
 	 * cleanup<P>
 	 * This method performs all things necessary before exiting the SmartAntenna application.
 	 */
@@ -2625,6 +2701,8 @@ public class CirrusII {
 		if ((serialComms != null) && serialComms.isConnected()) {
 			serialComms.disconnect();
 		}
+		// Turn off the camera
+		camera.enablePower(false);
 		// Turn off the LED
 		try {
 			led.close();

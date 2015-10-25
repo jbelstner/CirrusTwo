@@ -126,11 +126,11 @@ public class Camera {
 	public Boolean enablePower(Boolean enable) {
 		try {
 			if (enable) {
-				Runtime.getRuntime().exec("./camera_power.sh 0");
+				Runtime.getRuntime().exec("./camera_power.sh 1");
 				log("Camera power ON", Log.Level.Information);
 				cameraOn = true;
 			} else {
-				Runtime.getRuntime().exec("./camera_power.sh 1");				
+				Runtime.getRuntime().exec("./camera_power.sh 0");				
 				log("Camera power OFF", Log.Level.Information);
 				cameraOn = false;
 			}

@@ -28,7 +28,7 @@ import java.util.Date;
 
 import org.json.simple.JSONObject;
 
-public class SelfTest {
+public class BuiltInSelfTest {
 
 	private RfModuleCommHealth rfModuleCommHealth = RfModuleCommHealth.Good;
 	private Integer rfModulePacketCount = 0;
@@ -95,7 +95,7 @@ public class SelfTest {
 	 * SelfTest<P>
 	 * Class Constructor
 	 */
-	public SelfTest( Log logObject_ ) {
+	public BuiltInSelfTest( Log logObject_ ) {
 		// Save the Log object
 		logObject = logObject_;
 
