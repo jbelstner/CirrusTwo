@@ -118,7 +118,7 @@ public class CirrusII {
 	private int numberOfUploads = 0;
 	private int numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2P-0.9.19";
+	private static final String apiVersionString = "C2P-0.9.20";
 	private final String configFile = "application.conf";
 	private static CirrusII cirrusII;
 	private RfidState rfidState =  RfidState.Idle;
@@ -371,7 +371,7 @@ public class CirrusII {
 			bistTimer.cancel();
 		}
 		bistTimer = new Timer();
-		bistTimer.scheduleAtFixedRate(new BistTimerTask(), timeInterval_ms, timeInterval_ms);
+		bistTimer.schedule(new BistTimerTask(), timeInterval_ms, timeInterval_ms);
 	}	
 	
 	/** 
@@ -477,7 +477,7 @@ public class CirrusII {
 			uploadRetryTimer.cancel();
 		}
 		uploadRetryTimer = new Timer();
-		uploadRetryTimer.scheduleAtFixedRate(new UploadRetryTimerTask(), timeInterval_ms, timeInterval_ms);
+		uploadRetryTimer.schedule(new UploadRetryTimerTask(), timeInterval_ms, timeInterval_ms);
 	}	
 	
 	/** 
@@ -500,7 +500,7 @@ public class CirrusII {
 			tagEventAgeTimer.cancel();
 		}
 		tagEventAgeTimer = new Timer();
-		tagEventAgeTimer.scheduleAtFixedRate(new TagEventAgeTimerTask(), timeInterval_ms, timeInterval_ms);
+		tagEventAgeTimer.schedule(new TagEventAgeTimerTask(), timeInterval_ms, timeInterval_ms);
 	}	
 	
 	/** 
