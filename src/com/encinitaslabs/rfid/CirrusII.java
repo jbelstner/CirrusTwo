@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 - 2015, Encinitas Laboratories, Inc. 
+ * Copyright (c) 2013 - 2016, Encinitas Laboratories, Inc. 
  * All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -24,7 +24,6 @@ package com.encinitaslabs.rfid;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -35,6 +34,8 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+
+import org.apache.log4j.Logger;
 
 import com.encinitaslabs.rfid.cmd.CmdAntennaPortConf;
 import com.encinitaslabs.rfid.cmd.CmdHead;
@@ -58,6 +59,10 @@ import com.encinitaslabs.rfid.utils.Crc16;
  */
 public class CirrusII {
 	
+	private static final String appVersionString = "C2P-0.9.22";
+	private static final String configFile = "main.properties";
+	private static CirrusII cirrusII;
+
 	public enum RfidState {
 		Idle,
 		WaitingForResponse,
@@ -78,15 +83,12 @@ public class CirrusII {
 	// RFID parameters
 	private InventoryProfile profile = null;
 	private ArrayList<AntennaPort> antennaPorts = null;
-	private String profileFilename = "Default.conf";
 	private Llcs llcs = null;
 	private byte testModeCommandSelect = 0;
 	private boolean testModeResponsePending = false;
 	private int numPhysicalPorts = 2;
 	// Serial Port parameters
 	private SerialComms serialComms = null;
-	private String rfidCommPort = "/dev/ttyS0";
-	private int rfidBaudRate = 115200;
 	private String moduleType = "RU861";
 	private LinkedBlockingQueue<byte[]> serialCmdQueue = null;
 	private LinkedBlockingQueue<byte[]> serialRspQueue = null;
@@ -118,19 +120,13 @@ public class CirrusII {
 	private int numberOfUploads = 0;
 	private int numberOfUnique = 0;
 	// Local parameters
-	private static final String apiVersionString = "C2P-0.9.20";
-	private final String configFile = "application.conf";
-	private static CirrusII cirrusII;
+	private static final Logger log = Logger.getLogger(CirrusII.class);
 	private RfidState rfidState =  RfidState.Idle;
 	private boolean testMode = false;
-	private boolean serialDebug = false;
 	private String sipVersionString = " ";
 	private LedControl led = null;
 	private boolean useCLI = true;
 	private int ticTimerCount = 0;
-	private String logFilename = null;
-	private Log.Level logLevel = Log.Level.Error;
-	private Log log = null;
 	private BuiltInSelfTest bist = null;
 //	private boolean motionFlag = false;
 	private boolean errorFlag = false;
@@ -157,8 +153,8 @@ public class CirrusII {
 	 */
 	public static void main( String[] args ) throws InterruptedException , IOException {
 
-		System.out.println( "Encinitas Laboratories, Inc.  Copyright 2014-2015" );
-		System.out.println( "Cirrus-II Photo, version " + apiVersionString);
+		System.out.println( "Encinitas Laboratories, Inc.  Copyright 2014-2016" );
+		System.out.println( "Cirrus-II Photo, version " + appVersionString);
 			    
 		if ((args.length > 0) && (Boolean.valueOf(args[0]) == true)) {
 			System.out.println( "Command Line Interface Enabled\n\n");
@@ -202,9 +198,8 @@ public class CirrusII {
 		}
 		
 		// Create the log object that we need to have
-		log = new Log(logFilename, logLevel, useCLI);
-		log.makeEntry( "Cirrus-II Photo, version " + apiVersionString, logLevel);
-		bist = new BuiltInSelfTest(log);
+		log.info( "Cirrus-II Photo, version " + appVersionString);
+		bist = new BuiltInSelfTest();
 		
 		// Initialize the various queues
 		tagEvents = new ConcurrentHashMap<String, TagData>();
@@ -215,9 +210,8 @@ public class CirrusII {
 		nextRfidState = new LinkedBlockingQueue<RfidState>();
 		
 		// Fotaflo specific objects
-		camera = new Camera(pictureQueue, log);
+		camera = new Camera(pictureQueue);
 		fotaflo = new Fotaflo(deviceId, location);
-		fotaflo.setLogObject(log);
 		fotaflo.setCredentials(username, password);
 		fotaflo.setUploadUrl(photoUrl);
 		// Initially turn the power off
@@ -225,13 +219,12 @@ public class CirrusII {
 		camera.setShotsPerTrigger(shotsPerTrigger);
 
 		// SERIAL PORT INITIALIZATION
-		serialComms = new SerialComms(serialRspQueue, serialDebug);
-		serialComms.setLogObject(log);
+		serialComms = new SerialComms(serialRspQueue);
 		// This could throw an exception
 		try {
-			serialComms.connect(rfidCommPort, rfidBaudRate);
+			serialComms.connect();
 		} catch (Exception e) {
-			log.makeEntry("Unable to open " + rfidCommPort + "\n" + e.toString(), Log.Level.Error);
+			log.error("Unable to open Comm Port " + e.toString());
 		}
 
 		// Turn on the Green LED
@@ -239,14 +232,14 @@ public class CirrusII {
 			led = new LedControl();
 			led.set(LedControl.Color.Green, LedControl.BlinkState.Constant);
 		} catch (IOException e1) {
-			log.makeEntry("Unable set LED colors\n" + e1.toString(), Log.Level.Error);
+			log.error("Unable set LED colors\n" + e1.toString());
 		}			
 
 		// RFID MODULE INITIALIZATION
 		llcs = new Llcs();
 		try {
 			requestReaderInformation();
-			profile = new InventoryProfile(profileFilename);
+			profile = new InventoryProfile();
 			AntennaPort defaultPort = new AntennaPort(numPhysicalPorts);
 			defaultPort.setPowerLevel(profile.getDefaultPowerLevel());
 			defaultPort.setDwellTime(profile.getDefaultDwellTime());
@@ -257,7 +250,7 @@ public class CirrusII {
 			}
 			initializeRfidModuleSettings();
 		} catch (Exception e) {
-			log.makeEntry("Unable to load profile\n" + e.toString(), Log.Level.Error);
+			log.error("Unable to load profile\n" + e.toString());
 		}
 
 		if (useCLI) {
@@ -272,9 +265,9 @@ public class CirrusII {
 							command = sysin.readLine();
 							processCommandLineInput(command);
 						} catch (IOException e) {
-							log.makeEntry("Command line read error\n" + e.toString(), Log.Level.Error);
+							log.error("Command line read error\n" + e.toString());
 						} catch (InterruptedException e) {
-							log.makeEntry("Unable to queue Gateway Command\n" + e.toString(), Log.Level.Error);
+							log.error("Unable to queue Gateway Command\n" + e.toString());
 						}
 					}
 				}
@@ -291,7 +284,7 @@ public class CirrusII {
 						String fileToUpload = pictureQueue.take();
 						associateFileWithTagsAndUpload(fileToUpload);
 					} catch (Exception e) {
-						log.makeEntry("Error processing Command or Event\n" + e.toString(), Log.Level.Error);
+						log.error("Error processing Command or Event\n" + e.toString());
 					}
 				}
 			}
@@ -307,7 +300,7 @@ public class CirrusII {
 							byte[] serialCmd = serialCmdQueue.take();
 							// Determine the command type
 							String commandType = MtiCmd.getCommandType(serialCmd[MtiCmd.TYPE_INDEX]);
-					    	log.makeEntry("Sending " + commandType, Log.Level.Debug);
+					    	log.debug("Sending " + commandType);
 					    	// Change the serial state based on the command type
 							if (commandType.contains("Command")) {
 								setRfidState(RfidState.WaitingForResponse);
@@ -315,13 +308,13 @@ public class CirrusII {
 							// Send the packet out the serial port
 							serialComms.serialWrite(serialCmd, serialCmd.length);
 						} catch (Exception e) {
-							log.makeEntry("Error processing Serial Command\n" + e.toString(), Log.Level.Error);
+							log.error("Error processing Serial Command\n" + e.toString());
 						}
 					} else {
 						try {
 							nextRfidState.take();
 						} catch (Exception e) {
-							log.makeEntry("Error processing Next RFID State\n" + e.toString(), Log.Level.Error);
+							log.error("Error processing Next RFID State\n" + e.toString());
 						}
 					}
 				}
@@ -337,7 +330,7 @@ public class CirrusII {
 						byte[] nextResponse = serialRspQueue.take();
 						processSerialResponse(nextResponse);
 					} catch (Exception e) {
-						log.makeEntry("Error processing Serial Response\n" + e.toString(), Log.Level.Error);
+						log.error("Error processing Serial Response\n" + e.toString());
 					}
 				}
 			}
@@ -408,7 +401,7 @@ public class CirrusII {
 			try {
 				updateStatistics();
 			} catch (Exception e) {
-				log.makeEntry( "Unable to update statistics\n" + e.toString(), Log.Level.Error );
+				log.error( "Unable to update statistics\n" + e.toString() );
 			}
 		}
 	}
@@ -463,7 +456,7 @@ public class CirrusII {
 			try {
 				sendInventoryRequest();
 			} catch (InterruptedException e) {
-				log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+				log.error("Unable to queue serial command\n" + e.toString());
 			}
 		}
 	}
@@ -514,7 +507,7 @@ public class CirrusII {
 			try {
 				ageTagEvents();
 			} catch (NullPointerException npe) {
-				log.makeEntry("Unable to age tag database\n" + npe.toString(), Log.Level.Error);
+				log.error("Unable to age tag database\n" + npe.toString());
 			}
 			updateVisualIndicator();
 		}
@@ -549,7 +542,7 @@ public class CirrusII {
 				try {
 					initializeRfidModuleSettings();
 				} catch (InterruptedException e) {
-					log.makeEntry("Unable to initialize RFID module settings!  " + e.toString(), Log.Level.Error);
+					log.error("Unable to initialize RFID module settings!  " + e.toString());
 				}
 				// Pick up where we left off
 				if (autoRepeat) {
@@ -581,7 +574,7 @@ public class CirrusII {
 			byte[] cmd = llcs.getDeviceID();
 			if (cmd != null) { serialCmdQueue.put(cmd); }
 		} catch (InterruptedException e) {
-			log.makeEntry("Unable to send Ping to RFID module\n" + e.toString(), Log.Level.Error);
+			log.error("Unable to send Ping to RFID module\n" + e.toString());
 		}
 	}
 	
@@ -659,16 +652,16 @@ public class CirrusII {
 
 		// Log what we received
 		if (responseType.contains("Response")) {
-	    	log.makeEntry("Received " + response + " " + responseType, Log.Level.Debug);
+	    	log.debug("Received " + response + " " + responseType);
 		} else {
-	    	log.makeEntry("Received " + responseType, Log.Level.Debug);							
+	    	log.debug("Received " + responseType);							
 		}
 
 		// Check to see if this packet is corrupted
 		int packetLength = MtiCmd.getCommandLength(dataBuffer[MtiCmd.TYPE_INDEX]);
 		if (!Crc16.check(dataBuffer, packetLength)) {
-	    	log.makeEntry("CRC failed!", Log.Level.Warning);
-	    	log.makeEntry( MtiCmd.byteArrayToString(dataBuffer, packetLength, true), Log.Level.Warning);
+	    	log.warn("CRC failed!");
+	    	log.warn( MtiCmd.byteArrayToString(dataBuffer, packetLength, true));
 			return;
 		}
 
@@ -680,12 +673,12 @@ public class CirrusII {
 			// Check the status byte for an error
 			Byte status = dataBuffer[MtiCmd.STATUS_POS];
 			if (status != 0) {
-				log.makeEntry("MTI Command Error Code: " + status.toString(), Log.Level.Error);
+				log.error("MTI Command Error Code: " + status.toString());
 				sendClearError();
 			}
 			// Process the receipt of a Response packets
 			if (rfidState != RfidState.WaitingForResponse) {
-				log.makeEntry( "Received Response packet in the wrong state!", Log.Level.Warning);
+				log.warn( "Received Response packet in the wrong state!");
 	    		setRfidState(RfidState.WaitingForResponse);
 			}
 			// Specific Response packet processing
@@ -705,7 +698,7 @@ public class CirrusII {
 			} else if (response.name().contains("RFID_MacGetError") && !testModeResponsePending) {
 				int errorCode = CmdReaderModuleFirmwareAccess.RFID_MacGetError.parseResponse(dataBuffer);
 				if (errorCode != 0) {
-					log.makeEntry( "Last MTI MAC Firmware Error Code: 0x" + Integer.toHexString(errorCode), Log.Level.Error);
+					log.error( "Last MTI MAC Firmware Error Code: 0x" + Integer.toHexString(errorCode));
 				}
 	    		setRfidState(RfidState.Idle);
 
@@ -734,7 +727,7 @@ public class CirrusII {
 			int status = MtiCmd.getCmdEndStatus(dataBuffer);
 			if (status != 0) {
 				bist.setMtiStatusCode(status);
-				log.makeEntry("MTI MAC Firmware Error Code: 0x" + Integer.toHexString(status), Log.Level.Error);
+				log.error("MTI MAC Firmware Error Code: 0x" + Integer.toHexString(status));
 				sendClearError();
 			}
 			// Return to idle state
@@ -790,7 +783,7 @@ public class CirrusII {
 					oldData.eventCountDown_sec = eventTimeout_sec;
 					oldData.triggerCountDown_sec = triggerInterval_sec;
 					tagEvents.put(oldData.epc, oldData);
-					log.makeEntry(oldData.epc + " new trigger", Log.Level.Information);
+					log.info(oldData.epc + " new trigger");
 				}
 			}
 			// Update the all inclusive Tag Database
@@ -809,13 +802,13 @@ public class CirrusII {
 			if (tagData.triggerCountDown_sec > 0) {
 				tagData.triggerCountDown_sec--;
 				if (tagData.triggerCountDown_sec == 0 ) {
-					log.makeEntry(epc + " trigger holdoff expired", Log.Level.Debug);
+					log.debug(epc + " trigger holdoff expired");
 				}
 			}
 			if (tagData.eventCountDown_sec > 0) {
 				tagData.eventCountDown_sec--;
 				if (tagData.eventCountDown_sec == 0 ) {
-					log.makeEntry(epc + " tagEvent expired", Log.Level.Debug);
+					log.debug(epc + " tagEvent expired");
 					tagEvents.remove(epc);
 				}
 			}
@@ -841,11 +834,11 @@ public class CirrusII {
 				}
 			}
 			if (oldFiles > 0) {
-				log.makeEntry("Uploading " + oldFiles + " old files", Log.Level.Information);
+				log.info("Uploading " + oldFiles + " old files");
 			}
 			return true;
 		} catch (Exception e) {
-			log.makeEntry( "Error reading directory!\n" + e.toString(), Log.Level.Warning );
+			log.warn( "Error reading directory!\n" + e.toString() );
 			return false;
 		}
 	}
@@ -868,7 +861,7 @@ public class CirrusII {
 					numberOfUploads++;
 				}
 			} catch (Exception e) {
-				log.makeEntry("Unable to upload image/tags\n" + e.toString(), Log.Level.Error);
+				log.error("Unable to upload image/tags\n" + e.toString());
 			}
 		}
 	}
@@ -1250,14 +1243,14 @@ public class CirrusII {
 	 * @return void
 	 */
 	private void setRfidState( RfidState newRfidState ) {
-		log.makeEntry(newRfidState.toString(), Log.Level.Debug);
+		log.debug(newRfidState.toString());
 		synchronized(rfidState) {
 			rfidState = newRfidState;
 		}
 		try {
 			nextRfidState.put(rfidState);
 		} catch (InterruptedException e) {
-			log.makeEntry("Unable to queue the Next RFID State\n" + e.toString(), Log.Level.Error);
+			log.error("Unable to queue the Next RFID State\n" + e.toString());
 		}
 	}
 		
@@ -1316,7 +1309,7 @@ public class CirrusII {
 				autoRepeat = true;
 				sendInventoryRequest();
 			} catch (InterruptedException e) {
-				log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+				log.error("Unable to queue serial command\n" + e.toString());
 			}				
 		} else if (method.equalsIgnoreCase("stop")) {
 			System.out.println("Stopping autonomous photo capture\n");
@@ -1324,7 +1317,7 @@ public class CirrusII {
 				autoRepeat = false;
 				sendInventoryCancel();
 			} catch (InterruptedException e) {
-				log.makeEntry("Unable to queue serial command\n" + e.toString(), Log.Level.Error);
+				log.error("Unable to queue serial command\n" + e.toString());
 			}				
 		} else if (method.equalsIgnoreCase("beacon_on")) {
 			System.out.println("Visual beacon enabled\n");
@@ -1349,7 +1342,7 @@ public class CirrusII {
 			System.out.println("\n");
 			tagDatabase.clear();
 		} else if (method.equalsIgnoreCase("show_version")) {
-			System.out.println("Cirrus-II Application = " + apiVersionString);
+			System.out.println("Cirrus-II Application = " + appVersionString);
 			System.out.println("RFID Module Firmware Rev. = " + sipVersionString);
 			System.out.println("\n");
 		} else if (method.equalsIgnoreCase("rfid_config")) {
@@ -1360,16 +1353,6 @@ public class CirrusII {
 			bist.sendBitResponseToCli();
 		} else if (	method.equalsIgnoreCase("reset") ) {
 			resetDevice();
-			
-		} else if (method.equalsIgnoreCase("log_level") && (cmd.length == 2)) {
-			try {
-				log.setLevel(Log.Level.valueOf(cmd[1]));
-				System.out.println("Log level changed to \"" + cmd[1] + "\"");
-				System.out.println("\n");
-			} catch (Exception e) {
-				System.out.println("Invalid log level!");
-				System.out.println("\n");
-			}
 			
 		} else if (testMode) {
 			// Individual LLCS commands are handled here
@@ -1406,7 +1389,7 @@ public class CirrusII {
 	 * @throws InterruptedException 
 	 */
 	private Boolean sendInventoryCancel() throws InterruptedException {
-    	log.makeEntry("Sending RFID_ControlCancel", Log.Level.Information);
+    	log.info("Sending RFID_ControlCancel");
 		byte[] cmd = llcs.controlCancel();
 		// Send the packet out the serial port immediately
 		if (cmd != null) {
@@ -1453,7 +1436,7 @@ public class CirrusII {
 				serialCmdQueue.put(cmd1);
 				serialCmdQueue.put(cmd2);
 			} catch (Exception e) {
-				log.makeEntry("Unable to queue serial commands\n" + e.toString(), Log.Level.Error);
+				log.error("Unable to queue serial commands\n" + e.toString());
 			}
 		}
 		return true;
@@ -1495,14 +1478,6 @@ public class CirrusII {
 				String st[] = currentLine.split(" ");
 				if (currentLine.startsWith("#")) {
 					// Do nothing as this is a comment
-				} else if (currentLine.startsWith("COM_PORT") && (st.length == 2)) {
-					this.rfidCommPort = st[1];
-				} else if (currentLine.startsWith("BAUD_RATE") && (st.length == 2)) {
-					this.rfidBaudRate = Integer.parseInt(st[1]);
-				} else if (currentLine.startsWith("MODULE_TYPE") && (st.length == 2)) {
-					this.moduleType = st[1];
-				} else if (currentLine.startsWith("NUM_PHYSICAL_PORTS") && (st.length == 2)) {
-					this.numPhysicalPorts = Integer.parseInt(st[1]);
 				} else if (currentLine.startsWith("PHOTO_URL") && (st.length == 2)) {
 					this.photoUrl = st[1];
 				} else if (currentLine.startsWith("USERNAME") && (st.length == 2)) {
@@ -1531,18 +1506,6 @@ public class CirrusII {
 					this.latitude = Double.parseDouble(st[1]);
 				} else if (currentLine.startsWith("LONGITUDE") && (st.length == 2)) {
 					this.longitude = Double.parseDouble(st[1]);
-				} else if (currentLine.startsWith("RFID_PROFILE") && (st.length == 2)) {
-					this.profileFilename = st[1];
-				} else if (currentLine.startsWith("LOG_FILENAME") && (st.length == 2)) {
-					logFilename = st[1];
-				} else if (currentLine.startsWith("SERIAL_DEBUG") && (st.length == 2)) {
-					serialDebug = Boolean.parseBoolean(st[1]);
-				} else if(currentLine.startsWith("LOG_LEVEL") && (st.length == 2)) {
-					try {
-						logLevel = Log.Level.valueOf(st[1]);
-			        } catch(IllegalArgumentException iae) {
-			        	System.out.println("Invalid log level in config file!");
-			        }
 				}
 			}
 		} catch (IOException e) {
@@ -1551,44 +1514,6 @@ public class CirrusII {
 		br.close();
 	}
 
-	/** 
-	 * updateBaudRateInConfigFile<P>
-	 * This method replaces the BAUD_RATE parameter in the config file.
-	 * @param filename The config file filename.
-	 * @param newBaudRate The new BAUD_RATE parameter.
-	 * @throws IOException 
-	 */
-	private Boolean updateBaudRateInConfigFile(String filename, int newBaudRate) {
-	    try {
-	        // Read the config file content to the String "config"
-	        BufferedReader file = new BufferedReader(new FileReader(filename));
-	        String line, config = "";
-	        while ((line = file.readLine()) != null) {
-	        	config += line + '\n';
-	        }
-	        file.close();
-
-	        // Replace old baud rate value with new baud rate value
-	    	log.makeEntry("Updating BAUD_RATE in " + filename, Log.Level.Information);
-	    	String oldEntry = "BAUD_RATE " + rfidBaudRate;
-	    	String newEntry = "BAUD_RATE " + newBaudRate;
-	    	log.makeEntry("Old: " + oldEntry, Log.Level.Information);
-	    	log.makeEntry("New: " + newEntry, Log.Level.Information);
-	        config = config.replace(oldEntry, newEntry);
-	        rfidBaudRate = newBaudRate;
-
-	        // Write the new config file content OVER the same config file
-	        FileOutputStream fileOut = new FileOutputStream(filename);
-	        fileOut.write(config.getBytes());
-	        fileOut.close();
-			return true;
-			
-	    } catch (Exception e) {
-	    	log.makeEntry("Unable to update BAUD_RATE in " + filename, Log.Level.Warning);
-	        return false;
-	    }
-	}
-	
 	/** 
 	 * printTagDatabase<P>
 	 * This method prints the Inventory Tag Database.
@@ -2096,16 +2021,6 @@ public class CirrusII {
 			byte[] cmd = llcs.getOEMCfgUpdateNumber();
 			if (cmd != null) { serialCmdQueue.put(cmd); }
 
-		} else if ((command.startsWith("set_uart_baud_rate")) && (cli.length >= 2) && moduleType.startsWith("HPSIP")) {
-			int baudRate = Integer.decode(cli[1]);
-			byte[] cmd = llcs.setUartBaudRate(baudRate);
-			if (cmd != null) {
-				serialCmdQueue.put(cmd);
-				if (!updateBaudRateInConfigFile(configFile, baudRate)) {
-					System.out.println("Unable to update application.conf with new BAUD_RATE value!");
-				}
-			} else { System.out.println("Invalid parameter or format for " + cli[0]); }
-						
 		} else if ((command.startsWith("get_uart_baud_rate")) && moduleType.startsWith("HPSIP")) {
 			byte[] cmd = llcs.getUartBaudRate();
 			if (cmd != null) { serialCmdQueue.put(cmd); }
@@ -2680,15 +2595,14 @@ public class CirrusII {
 			// Close and reopen the serial port
 			if ((serialComms != null) && serialComms.isConnected()) {
 				serialComms.disconnect();
-				serialComms = new SerialComms(serialRspQueue, serialDebug);
-				serialComms.setLogObject(log);
-				serialComms.connect(rfidCommPort, rfidBaudRate);
+				serialComms = new SerialComms(serialRspQueue);
+				serialComms.connect();
 			}
 			sendSoftReset();
 		} catch (InterruptedException e) {
-			log.makeEntry("Unable to send command to RFID module\n" + e.toString(), Log.Level.Error);
+			log.error("Unable to send command to RFID module " + e.toString());
 		} catch (Exception e) {
-			log.makeEntry("Unable to re-open " + rfidCommPort + "\n" + e.toString(), Log.Level.Error);
+			log.error("Unable to re-open Comm Port " + e.toString());
 		}
 	}
 
@@ -2707,7 +2621,7 @@ public class CirrusII {
 		try {
 			led.close();
 		} catch (IOException e) {
-			log.makeEntry("Unable to control LED\n" + e.toString(), Log.Level.Error);
+			log.error("Unable to control LED\n" + e.toString());
 		}
 	}
 }

@@ -40,6 +40,7 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 
+import org.apache.log4j.Logger;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.IOUtils;
 
@@ -58,8 +59,8 @@ public class Fotaflo {
 	private String photoUrl = null;
 	private String deviceId = null;
 	private String location = null;
-	private Log logObject = null;
 	
+	private static final Logger log = Logger.getLogger(Fotaflo.class);
 	private final ExecutorService executor = Executors.newCachedThreadPool();
 
 	
@@ -98,8 +99,8 @@ public class Fotaflo {
 		} else {
 			password = "Carlsbad";
 		}
-		log( "username " + username, Log.Level.Information );
-		log( "password " + password, Log.Level.Information );
+		log.info( "username " + username );
+		log.info( "password " + password );
 	}
 
 	/** 
@@ -113,7 +114,7 @@ public class Fotaflo {
 		} else {
 			photoUrl = "http://199.58.116.35:8081/fotaflo-test/pictures/upload";
 		}
-		log( "photoUrl " + photoUrl, Log.Level.Information );
+		log.info( "photoUrl " + photoUrl );
 	}	
 	
 	/**
@@ -187,16 +188,16 @@ public class Fotaflo {
 	            uc.setDoOutput(true);
 	            
 	        } catch (MalformedURLException e) {
-				log( "Invalid URL " + photoUrl, Log.Level.Error );
+				log.error( "Invalid URL " + photoUrl );
 	        	return;
 	        } catch (IOException e) {
-				log( "Unable to open connection to remote server", Log.Level.Error );
+				log.error( "Unable to open connection to remote server" );
 	        	return;
 	        } catch (IllegalStateException e) {
-				log( "Unable to set property", Log.Level.Error );
+				log.error( "Unable to set property" );
 	        	return;
 	        } catch (NullPointerException e) {
-				log( "Missing or invalid fields", Log.Level.Error );
+				log.error( "Missing or invalid fields" );
 	        	return;
 	        }
 
@@ -206,7 +207,7 @@ public class Fotaflo {
 	        try {
 	        	File file = new File(filename);
 	            if (file.exists()) {
-	    			log( "Uploading " + filename, Log.Level.Information );
+	    			log.info( "Uploading " + filename );
 	                source = new FileInputStream(file);
 	                content = uc.getOutputStream();
 
@@ -215,7 +216,7 @@ public class Fotaflo {
 	                content.close();
 
 	                // Get Response
-	    			log( "Waiting for Server Response", Log.Level.Information );
+	    			log.info( "Waiting for Server Response" );
 	                InputStream is = uc.getInputStream();
 	                BufferedReader rd = new BufferedReader(new InputStreamReader(is));
 	                String line;
@@ -226,16 +227,16 @@ public class Fotaflo {
 	                }
 	                rd.close();
 	                is.close();
-	    			log( "Server Response " + response.toString(), Log.Level.Information );
+	    			log.info( "Server Response " + response.toString() );
 	                uc.disconnect();
 		            // Delete the file once its been uploaded
 					Runtime.getRuntime().exec("rm " + filename);
 
 	            } else {
-	    			log( filename + " does not exist!", Log.Level.Warning );
+	    			log.warn( filename + " does not exist!" );
 	            }
 	        } catch (IOException e) {
-				log( "Error uploading photo", Log.Level.Error );
+				log.error( "Error uploading photo" );
 	        }
 	        
 	        try {
@@ -246,7 +247,7 @@ public class Fotaflo {
 		            source.close();
 		        }
 	        } catch (IOException e) {
-				log( "Error closing input/output streams", Log.Level.Error );
+				log.error( "Error closing input/output streams" );
 	        }
 		}
 	}
@@ -301,16 +302,16 @@ public class Fotaflo {
             uc.setDoOutput(true);
             
         } catch (MalformedURLException e) {
-			log( "Invalid URL " + photoUrl, Log.Level.Error );
+			log.error( "Invalid URL " + photoUrl );
         	return false;
         } catch (IOException e) {
-			log( "Unable to open connection to remote server", Log.Level.Error );
+			log.error( "Unable to open connection to remote server" );
         	return false;
         } catch (IllegalStateException e) {
-			log( "Unable to set property", Log.Level.Error );
+			log.error( "Unable to set property" );
         	return false;
         } catch (NullPointerException e) {
-			log( "Missing or invalid fields", Log.Level.Error );
+			log.error( "Missing or invalid fields" );
         	return false;
         }
 
@@ -320,7 +321,7 @@ public class Fotaflo {
         try {
         	File file = new File(filename);
             if (file.exists()) {
-    			log( "Uploading " + filename, Log.Level.Information );
+    			log.info( "Uploading " + filename );
                 source = new FileInputStream(file);
                 content = uc.getOutputStream();
 
@@ -329,7 +330,7 @@ public class Fotaflo {
                 content.close();
 
                 // Get Response
-    			log( "Waiting for Server Response", Log.Level.Information );
+    			log.info( "Waiting for Server Response" );
                 InputStream is = uc.getInputStream();
                 BufferedReader rd = new BufferedReader(new InputStreamReader(is));
                 String line;
@@ -340,14 +341,14 @@ public class Fotaflo {
                 }
                 rd.close();
                 is.close();
-    			log( "Server Response " + response.toString(), Log.Level.Information );
+    			log.info( "Server Response " + response.toString() );
                 uc.disconnect();
     			success = true;
             } else {
-    			log( filename + " does not exist!", Log.Level.Warning );
+    			log.warn( filename + " does not exist!", Log.Level.Warning );
             }
         } catch (IOException e) {
-			log( "Error uploading photo", Log.Level.Error );
+			log.error( "Error uploading photo" );
         }
         
         try {
@@ -358,31 +359,10 @@ public class Fotaflo {
 	            source.close();
 	        }
         } catch (IOException e) {
-			log( "Error closing input/output streams", Log.Level.Error );
+			log.error( "Error closing input/output streams" );
         }
         return success;
 */		
 	}
 
-	/** 
-	 * setLogObject<P>
-	 * This method is used for making log entries.
-	 */
-	public void setLogObject(Log logObject_) {
-		logObject = logObject_;
-		log( "deviceId " + deviceId, Log.Level.Information );
-		log( "location " + location, Log.Level.Information );
-	}
-	
-	/** 
-	 * log<P>
-	 * This method is used for making log entries.
-	 */
-	private void log(String entry, Log.Level logLevel) {
-		if (logObject != null) {
-			logObject.makeEntry(entry, logLevel);
-		} else {
-			System.out.println(entry);
-		}
-	}
 }

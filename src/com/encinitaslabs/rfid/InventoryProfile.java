@@ -41,7 +41,7 @@ import com.encinitaslabs.rfid.cmd.CmdTagProtocol;
  * @version 0.1
  */
 public class InventoryProfile {
-	private String profileFilename = "Default.conf";
+	private String profileFilename = "rfid.properties";
 	// RF Configuration Parameters
 	private CmdReaderModuleConfig.OperationMode operationMode = CmdReaderModuleConfig.OperationMode.NonContinuous;
 	private Integer linkProfile = 1;
@@ -82,125 +82,122 @@ public class InventoryProfile {
 	 * Class Constructor
 	 * @throws IOException 
 	 */
-	public InventoryProfile(String filename) throws IOException {
-		if (filename != null) {
-			profileFilename = filename;
-			BufferedReader br = null;
-			String currentLine;
-			br = new BufferedReader(new FileReader(filename));
+	public InventoryProfile( ) throws IOException {
+		BufferedReader br = null;
+		String currentLine;
+		br = new BufferedReader(new FileReader(profileFilename));
 
-			while ((currentLine = br.readLine()) != null) {
-				String st[] = currentLine.split(" ");
-				if (currentLine.startsWith("#") || (st.length == 1)) {
-					// Do nothing as this is a comment or no parameter
-				} else if (currentLine.startsWith("OPERATION_MODE") && (st.length == 2)) {
-					this.operationMode = CmdReaderModuleConfig.OperationMode.valueOf(st[1]);
-					if (this.operationMode == null) {
-						this.operationMode = CmdReaderModuleConfig.OperationMode.NonContinuous;
-					}
-				} else if (currentLine.startsWith("LINK_PROFILE") && (st.length == 2)) {
-					this.linkProfile = Integer.parseInt(st[1]);
-					if ((this.linkProfile < 0) || (this.linkProfile > 3)) {
-						this.linkProfile = 1;
-					}
-				} else if (currentLine.startsWith("NUM_VIRTUAL_PORTS") && (st.length == 2)) {
-					this.numVirtualPorts = Integer.parseInt(st[1]);
-					if ((this.numVirtualPorts < 0) || (this.numVirtualPorts > 1)) {
-						this.numVirtualPorts = 1;
-					}
-				} else if (currentLine.startsWith("POWER_LEVEL") && (st.length == 2)) {
-					this.defaultPowerLevel = Float.parseFloat(st[1]);
-					if ((this.defaultPowerLevel < 0) || (this.defaultPowerLevel > 33)) {
-						this.defaultPowerLevel = (float)30;
-					}
-				} else if (currentLine.startsWith("DWELL_TIME") && (st.length == 2)) {
-					this.defaultDwellTime = Integer.parseInt(st[1]);
-					if ((this.defaultDwellTime < 0) || (this.defaultDwellTime > 65535)) {
-						this.defaultDwellTime = 2000;
-					}
-				} else if (currentLine.startsWith("INV_CYCLES") && (st.length == 2)) {
-					this.defaultInvCycles = Integer.parseInt(st[1]);
-					if ((this.defaultInvCycles < 0) || (this.defaultInvCycles > 65535)) {
-						this.defaultInvCycles = 0;
-					}
-					if ((this.defaultInvCycles == 0) && (this.defaultDwellTime == 0)) {
-						// Both cannot be zero so set numberInventoryCycles = 1
-						this.defaultInvCycles = 1;
-					}
-				} else if (currentLine.startsWith("DELAY_TIME") && (st.length == 2)) {
-					this.defaultDelayTime = Integer.parseInt(st[1]);
-					if ((this.defaultDelayTime < 0) || (this.defaultDelayTime > 65535)) {
-						this.defaultDelayTime = 2000;
-					}
-				} else if (currentLine.startsWith("SELECTED_STATE") && (st.length == 2)) {
-					this.selectedState = CmdTagAccess.Selected.valueOf(st[1]);
-					if (this.selectedState == null) {
-						this.selectedState = CmdTagAccess.Selected.Any;
-					}
-				} else if (currentLine.startsWith("SESSION_FLAG") && (st.length == 2)) {
-					this.sessionFlag = CmdTagAccess.Session.valueOf(st[1]);
-					if (this.sessionFlag == null) {
-						this.sessionFlag = CmdTagAccess.Session.S1;
-					}
-				} else if (currentLine.startsWith("TARGET_STATE") && (st.length == 2)) {
-					this.targetState = CmdTagAccess.Target.valueOf(st[1]);
-					if (this.targetState == null) {
-						this.targetState = CmdTagAccess.Target.A;
-					}
-				} else if (currentLine.startsWith("ALGORITHM") && (st.length == 2)) {
-					this.algorithm = CmdTagAccess.Algorithm.valueOf(st[1]);
-					if (this.algorithm == null) {
-						this.algorithm = CmdTagAccess.Algorithm.FixedQ;
-					}
-				} else if (currentLine.startsWith("FIXED_Q_VALUE") && (st.length == 2)) {
-					this.fixedQValue = Integer.parseInt(st[1]);
-					if ((this.fixedQValue < 0) || (this.fixedQValue > 15)) {
-						this.fixedQValue = 7;
-					}
-				} else if (currentLine.startsWith("START_Q_VALUE") && (st.length == 2)) {
-					this.startQValue = Integer.parseInt(st[1]);
-					if ((this.startQValue < 0) || (this.startQValue > 15)) {
-						this.startQValue = 3;
-					}
-				} else if (currentLine.startsWith("MIN_Q_VALUE") && (st.length == 2)) {
-					this.minQValue = Integer.parseInt(st[1]);
-					if ((this.minQValue < 0) || (this.minQValue > 15)) {
-						this.minQValue = 3;
-					}
-				} else if (currentLine.startsWith("MAX_Q_VALUE") && (st.length == 2)) {
-					this.maxQValue = Integer.parseInt(st[1]);
-					if ((this.maxQValue < 0) || (this.maxQValue > 15)) {
-						this.maxQValue = 15;
-					}
-				} else if (currentLine.startsWith("RETRY_COUNT") && (st.length == 2)) {
-					this.retryCount = Integer.parseInt(st[1]);
-					if ((this.retryCount < 0) || (this.retryCount > 255)) {
-						this.retryCount = 0;
-					}
-				} else if (currentLine.startsWith("TOGGLE_TARGET_FLAG") && (st.length == 2)) {
-					this.toggleTargetFlag = CmdTagAccess.ToggleTarget.valueOf(st[1]);
-					if (this.toggleTargetFlag == null) {
-						this.toggleTargetFlag = CmdTagAccess.ToggleTarget.Yes;
-					}
-				} else if (currentLine.startsWith("REPEAT_UNTIL_NO_TAGS") && (st.length == 2)) {
-					this.repeatUntilNoTags = CmdTagAccess.RepeatUntilNoTags.valueOf(st[1]);
-					if (this.repeatUntilNoTags == null) {
-						this.repeatUntilNoTags = CmdTagAccess.RepeatUntilNoTags.No;
-					}
-				} else if (currentLine.startsWith("THRESHOLD_MULTIPLIER") && (st.length == 2)) {
-					this.thresholdMultiplier = Integer.parseInt(st[1]);
-					if ((this.thresholdMultiplier < 0) || (this.thresholdMultiplier > 255)) {
-						this.thresholdMultiplier = 0;
-					}
-				} else if (currentLine.startsWith("PERFORM_GUARD_MODE") && (st.length == 2)) {
-					this.performGuardMode = CmdTagProtocol.PerformGuardMode.valueOf(st[1]);
-					if (this.performGuardMode == null) {
-						this.performGuardMode = CmdTagProtocol.PerformGuardMode.RealtimeMode;
-					}
+		while ((currentLine = br.readLine()) != null) {
+			String st[] = currentLine.split(" ");
+			if (currentLine.startsWith("#") || (st.length == 1)) {
+				// Do nothing as this is a comment or no parameter
+			} else if (currentLine.startsWith("OPERATION_MODE") && (st.length == 2)) {
+				this.operationMode = CmdReaderModuleConfig.OperationMode.valueOf(st[1]);
+				if (this.operationMode == null) {
+					this.operationMode = CmdReaderModuleConfig.OperationMode.NonContinuous;
+				}
+			} else if (currentLine.startsWith("LINK_PROFILE") && (st.length == 2)) {
+				this.linkProfile = Integer.parseInt(st[1]);
+				if ((this.linkProfile < 0) || (this.linkProfile > 3)) {
+					this.linkProfile = 1;
+				}
+			} else if (currentLine.startsWith("NUM_VIRTUAL_PORTS") && (st.length == 2)) {
+				this.numVirtualPorts = Integer.parseInt(st[1]);
+				if ((this.numVirtualPorts < 0) || (this.numVirtualPorts > 1)) {
+					this.numVirtualPorts = 1;
+				}
+			} else if (currentLine.startsWith("POWER_LEVEL") && (st.length == 2)) {
+				this.defaultPowerLevel = Float.parseFloat(st[1]);
+				if ((this.defaultPowerLevel < 0) || (this.defaultPowerLevel > 33)) {
+					this.defaultPowerLevel = (float)30;
+				}
+			} else if (currentLine.startsWith("DWELL_TIME") && (st.length == 2)) {
+				this.defaultDwellTime = Integer.parseInt(st[1]);
+				if ((this.defaultDwellTime < 0) || (this.defaultDwellTime > 65535)) {
+					this.defaultDwellTime = 2000;
+				}
+			} else if (currentLine.startsWith("INV_CYCLES") && (st.length == 2)) {
+				this.defaultInvCycles = Integer.parseInt(st[1]);
+				if ((this.defaultInvCycles < 0) || (this.defaultInvCycles > 65535)) {
+					this.defaultInvCycles = 0;
+				}
+				if ((this.defaultInvCycles == 0) && (this.defaultDwellTime == 0)) {
+					// Both cannot be zero so set numberInventoryCycles = 1
+					this.defaultInvCycles = 1;
+				}
+			} else if (currentLine.startsWith("DELAY_TIME") && (st.length == 2)) {
+				this.defaultDelayTime = Integer.parseInt(st[1]);
+				if ((this.defaultDelayTime < 0) || (this.defaultDelayTime > 65535)) {
+					this.defaultDelayTime = 2000;
+				}
+			} else if (currentLine.startsWith("SELECTED_STATE") && (st.length == 2)) {
+				this.selectedState = CmdTagAccess.Selected.valueOf(st[1]);
+				if (this.selectedState == null) {
+					this.selectedState = CmdTagAccess.Selected.Any;
+				}
+			} else if (currentLine.startsWith("SESSION_FLAG") && (st.length == 2)) {
+				this.sessionFlag = CmdTagAccess.Session.valueOf(st[1]);
+				if (this.sessionFlag == null) {
+					this.sessionFlag = CmdTagAccess.Session.S1;
+				}
+			} else if (currentLine.startsWith("TARGET_STATE") && (st.length == 2)) {
+				this.targetState = CmdTagAccess.Target.valueOf(st[1]);
+				if (this.targetState == null) {
+					this.targetState = CmdTagAccess.Target.A;
+				}
+			} else if (currentLine.startsWith("ALGORITHM") && (st.length == 2)) {
+				this.algorithm = CmdTagAccess.Algorithm.valueOf(st[1]);
+				if (this.algorithm == null) {
+					this.algorithm = CmdTagAccess.Algorithm.FixedQ;
+				}
+			} else if (currentLine.startsWith("FIXED_Q_VALUE") && (st.length == 2)) {
+				this.fixedQValue = Integer.parseInt(st[1]);
+				if ((this.fixedQValue < 0) || (this.fixedQValue > 15)) {
+					this.fixedQValue = 7;
+				}
+			} else if (currentLine.startsWith("START_Q_VALUE") && (st.length == 2)) {
+				this.startQValue = Integer.parseInt(st[1]);
+				if ((this.startQValue < 0) || (this.startQValue > 15)) {
+					this.startQValue = 3;
+				}
+			} else if (currentLine.startsWith("MIN_Q_VALUE") && (st.length == 2)) {
+				this.minQValue = Integer.parseInt(st[1]);
+				if ((this.minQValue < 0) || (this.minQValue > 15)) {
+					this.minQValue = 3;
+				}
+			} else if (currentLine.startsWith("MAX_Q_VALUE") && (st.length == 2)) {
+				this.maxQValue = Integer.parseInt(st[1]);
+				if ((this.maxQValue < 0) || (this.maxQValue > 15)) {
+					this.maxQValue = 15;
+				}
+			} else if (currentLine.startsWith("RETRY_COUNT") && (st.length == 2)) {
+				this.retryCount = Integer.parseInt(st[1]);
+				if ((this.retryCount < 0) || (this.retryCount > 255)) {
+					this.retryCount = 0;
+				}
+			} else if (currentLine.startsWith("TOGGLE_TARGET_FLAG") && (st.length == 2)) {
+				this.toggleTargetFlag = CmdTagAccess.ToggleTarget.valueOf(st[1]);
+				if (this.toggleTargetFlag == null) {
+					this.toggleTargetFlag = CmdTagAccess.ToggleTarget.Yes;
+				}
+			} else if (currentLine.startsWith("REPEAT_UNTIL_NO_TAGS") && (st.length == 2)) {
+				this.repeatUntilNoTags = CmdTagAccess.RepeatUntilNoTags.valueOf(st[1]);
+				if (this.repeatUntilNoTags == null) {
+					this.repeatUntilNoTags = CmdTagAccess.RepeatUntilNoTags.No;
+				}
+			} else if (currentLine.startsWith("THRESHOLD_MULTIPLIER") && (st.length == 2)) {
+				this.thresholdMultiplier = Integer.parseInt(st[1]);
+				if ((this.thresholdMultiplier < 0) || (this.thresholdMultiplier > 255)) {
+					this.thresholdMultiplier = 0;
+				}
+			} else if (currentLine.startsWith("PERFORM_GUARD_MODE") && (st.length == 2)) {
+				this.performGuardMode = CmdTagProtocol.PerformGuardMode.valueOf(st[1]);
+				if (this.performGuardMode == null) {
+					this.performGuardMode = CmdTagProtocol.PerformGuardMode.RealtimeMode;
 				}
 			}
-			br.close();
 		}
+		br.close();
 	}
 	
 	/** 

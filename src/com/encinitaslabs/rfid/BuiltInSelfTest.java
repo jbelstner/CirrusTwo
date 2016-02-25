@@ -26,10 +26,12 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.Date;
 
+import org.apache.log4j.Logger;
 import org.json.simple.JSONObject;
 
 public class BuiltInSelfTest {
 
+	private static final Logger log = Logger.getLogger(BuiltInSelfTest.class);
 	private RfModuleCommHealth rfModuleCommHealth = RfModuleCommHealth.Good;
 	private Integer rfModulePacketCount = 0;
 	private Integer ambientTemperature = null;
@@ -51,7 +53,6 @@ public class BuiltInSelfTest {
 	private int user, nice, system, idle, iowait, irq, softirq, steal;
 	private int prev_user, prev_nice, prev_system, prev_idle, prev_iowait, prev_irq, prev_softirq, prev_steal;
 	private Boolean previousValuesStored = false;
-	private Log logObject = null;
 	// Threshold settings
 /*
 	private Integer ambientTempThresholdHi = null;
@@ -95,9 +96,7 @@ public class BuiltInSelfTest {
 	 * SelfTest<P>
 	 * Class Constructor
 	 */
-	public BuiltInSelfTest( Log logObject_ ) {
-		// Save the Log object
-		logObject = logObject_;
+	public BuiltInSelfTest( ) {
 
 		// Record the start date/time
 		startEpoch_ms = new Date().getTime();		
@@ -592,7 +591,7 @@ public class BuiltInSelfTest {
 			}
 			return true;
 		} catch (Exception e) {
-			log( "Unable to update CPU statistics!\n" + e.toString(), Log.Level.Error );
+			log.error( "Unable to update CPU statistics!\n" + e.toString() );
 			return false;
 		}
 	}
@@ -631,20 +630,9 @@ public class BuiltInSelfTest {
 			totalMemUsedBytes = totalMemInfoBytes - totalMemFreeBytes;
 			return true;
 		} catch (Exception e) {
-			log( "Unable to update memory statistics!\n" + e.toString(), Log.Level.Error );
+			log.error( "Unable to update memory statistics!\n" + e.toString() );
 			return false;
 		}
 	}
 
-	/** 
-	 * log<P>
-	 * This method is used for making log entries.
-	 */
-	private void log(String entry, Log.Level logLevel) {
-		if (logObject != null) {
-			logObject.makeEntry(entry, logLevel);
-		} else {
-			System.out.println(entry);
-		}
-	}
 }

@@ -22,7 +22,8 @@
  */
 package com.encinitaslabs.rfid.comms;
 
-import com.encinitaslabs.rfid.Log;
+import org.apache.log4j.Logger;
+
 import com.encinitaslabs.rfid.cmd.MtiCmd;
 import gnu.io.*;
 import java.io.*;
@@ -40,6 +41,7 @@ import java.util.concurrent.LinkedBlockingQueue;
  */
 public class SerialComms implements SerialPortEventListener {
 
+	private static final Logger log = Logger.getLogger(SerialComms.class);
 	public static final String TAG = "SerialComms";
     private static CommPortIdentifier portId;
 	private boolean isOpen = false;
@@ -49,7 +51,6 @@ public class SerialComms implements SerialPortEventListener {
 	private SerialPort serialPort = null;
 	private CommPort commPort = null;
 	private LinkedBlockingQueue<byte[]> serialRspQueue = null;
-	private Log logObject = null;
 
 	private boolean lookForNewPacket = true;
 	private int packetLength = 0;
@@ -58,7 +59,8 @@ public class SerialComms implements SerialPortEventListener {
 	private byte[] circularBuffer = new byte[circularBufferSize];
 	private int inIndex = 0;
 	private int outIndex = 0;
-
+	private String portName = "/dev/ttyS0";
+	private Integer baudRate = 115200;
 	
 	
 	/** 
@@ -66,9 +68,8 @@ public class SerialComms implements SerialPortEventListener {
 	 * 
 	 * Class Constructor
 	 */
-    public SerialComms( LinkedBlockingQueue<byte[]> serialRspQueue, Boolean debug_ ) {
+    public SerialComms( LinkedBlockingQueue<byte[]> serialRspQueue ) {
 		this.serialRspQueue = serialRspQueue;
-		this.DEBUG = debug_;
 	}
 	
 	/** 
@@ -78,7 +79,7 @@ public class SerialComms implements SerialPortEventListener {
 	 * @return True is the serial port was successfully opened
      * @throws Exception
 	 */
-	public boolean connect( String portName, Integer baudRate ) throws Exception {
+	public boolean connect( ) throws Exception {
 		boolean status = false;
 		portId = CommPortIdentifier.getPortIdentifier( portName );
 		if ( portId.isCurrentlyOwned() ) {
@@ -179,15 +180,15 @@ public class SerialComms implements SerialPortEventListener {
 				break;
 
 			case SerialPortEvent.OE:
-				log( "Serial Port Overrun!", Log.Level.Error );
+				log.error( "Serial Port Overrun!" );
 				break;
 
 			case SerialPortEvent.FE:
-				log( "Serial Port Framing!", Log.Level.Error );
+				log.error( "Serial Port Framing!" );
 				break;
 
 			case SerialPortEvent.PE:
-				log( "Serial Port Parity!", Log.Level.Error );
+				log.error( "Serial Port Parity!" );
 				break;
 
 			case SerialPortEvent.CD:
@@ -222,12 +223,12 @@ public class SerialComms implements SerialPortEventListener {
 								// Process the serial data
 								serialRead(readBuffer, bytesRead);
 							} catch (ArrayIndexOutOfBoundsException e) {
-								log( "bytesRead = " + bytesRead + "\ninIndex   = " + inIndex + "\noutIndex  = " + outIndex + "\n" + e.toString(), Log.Level.Error );
+								log.error( "bytesRead = " + bytesRead + "\ninIndex   = " + inIndex + "\noutIndex  = " + outIndex + "\n" + e.toString() );
 							}
 						}
 					} 
 				} catch (Exception e) {
-					log( "Serial Port Read failed!\n" + e.toString(), Log.Level.Error );
+					log.error( "Serial Port Read failed!\n" + e.toString() );
 				}
 				break;
 				
@@ -254,7 +255,7 @@ public class SerialComms implements SerialPortEventListener {
 //					System.out.println( "serialWrite: " + Integer.toString(length) );
 				}
 			} catch( IOException e ) {
-				log( "Serial Port Write failed!\n" + e.toString(), Log.Level.Error );
+				log.error( "Serial Port Write failed!\n" + e.toString() );
 			}
 		}
 		return status;
@@ -388,7 +389,7 @@ public class SerialComms implements SerialPortEventListener {
 			// Now send it up
 			serialRspQueue.put(packet);
 		} catch (InterruptedException e) {
-			log( "Queueing Packet failed!\n" + e.toString(), Log.Level.Error );
+			log.error( "Queueing Packet failed!\n" + e.toString() );
 		}
 		// Reset all values to look for a new packet
 		lookForNewPacket = true;
@@ -396,23 +397,4 @@ public class SerialComms implements SerialPortEventListener {
 		packetLength = 0;
 	}
 	
-	/** 
-	 * setLogObject<P>
-	 * This method is used for making log entries.
-	 */
-	public void setLogObject(Log logObject_) {
-		logObject = logObject_;
-	}
-	
-	/** 
-	 * log<P>
-	 * This method is used for making log entries.
-	 */
-	private void log(String entry, Log.Level logLevel) {
-		if (logObject != null) {
-			logObject.makeEntry(entry, logLevel);
-		} else {
-			System.out.println(entry);
-		}
-	}
 }

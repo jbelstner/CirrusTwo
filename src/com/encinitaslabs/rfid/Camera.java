@@ -30,6 +30,7 @@ import java.util.Date;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.apache.log4j.Logger;
 
 /**
  * Camera Object
@@ -40,6 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class Camera {
 	
+	private static final Logger log = Logger.getLogger(Camera.class);
 	private final String make_s = "Manufacturer: ";
 	private final String model_s = "Model: ";
 	private final String version_s = "  Version: ";
@@ -56,7 +58,6 @@ public class Camera {
 	private String model = null;
 	private String version = null;
 	private String serialNumber = null;
-	private Log logObject = null;
 	private ImageFormat imageFormat = ImageFormat.SmallNormal;
 	private String shotsPerTrigger = "1";
 	private Boolean cameraOn = false;
@@ -88,9 +89,8 @@ public class Camera {
 	 * Camera<P>
 	 * Class Constructor
 	 */
-	public Camera ( LinkedBlockingQueue<String> pictureQueue_, Log logObject_ ) {
+	public Camera ( LinkedBlockingQueue<String> pictureQueue_ ) {
 		pictureQueue = pictureQueue_;
-		logObject = logObject_;		
 		busy = new AtomicBoolean(false);
 		commandQueue = new LinkedBlockingQueue<String>();
 
@@ -109,7 +109,7 @@ public class Camera {
 						// The camera is no longer busy
 						busy.set(false);
 					} catch (Exception e) {
-						log("Error processing tagInfoQueue\n" + e.toString(), Log.Level.Error);
+						log.error("Error processing tagInfoQueue\n" + e.toString());
 					}
 				}
 			}
@@ -127,16 +127,16 @@ public class Camera {
 		try {
 			if (enable) {
 				Runtime.getRuntime().exec("./camera_power.sh 1");
-				log("Camera power ON", Log.Level.Information);
+				log.info("Camera power ON");
 				cameraOn = true;
 			} else {
 				Runtime.getRuntime().exec("./camera_power.sh 0");				
-				log("Camera power OFF", Log.Level.Information);
+				log.info("Camera power OFF");
 				cameraOn = false;
 			}
 			return true;
 		} catch (IOException e) {
-			log( "Unable to enable camera power!", Log.Level.Error );
+			log.error( "Unable to enable camera power!" );
 			return false;
 		}
 	}
@@ -222,7 +222,7 @@ public class Camera {
 			commandQueue.put("summary");
 			success = true;				
 		} catch (Exception e) {
-			log( "Unable to queue the summary command!\n" + e.toString(), Log.Level.Error );
+			log.error( "Unable to queue the summary command!\n" + e.toString() );
 		}
 		return success;
 	}
@@ -237,7 +237,7 @@ public class Camera {
 			commandQueue.put("set-config");
 			success = true;				
 		} catch (Exception e) {
-			log( "Unable to queue the set-config command!\n" + e.toString(), Log.Level.Error );
+			log.error( "Unable to queue the set-config command!\n" + e.toString() );
 		}
 		return success;
 	}
@@ -269,7 +269,7 @@ public class Camera {
 			commandQueue.put("capture-image-and-download " + tagInfo);
 			success = true;				
 		} catch (Exception e) {
-			log( "Unable to queue the capture command!\n" + e.toString(), Log.Level.Error );
+			log.error( "Unable to queue the capture command!\n" + e.toString() );
 		}
 		return success;
 	}
@@ -291,7 +291,7 @@ public class Camera {
 				captureImageAndDownload(rt, cmd[1]);
 			}
 		} else {
-			log( "Invalid camera command", Log.Level.Warning );
+			log.warn( "Invalid camera command" );
 		}
 	}
 
@@ -302,10 +302,10 @@ public class Camera {
 	private void setConfig(Runtime rt) {
 		try {
 			// Send the gphoto2 command
-			log("gphoto2 --set-config /main/imgsettings/imageformat=" + imageFormat.getValue(), Log.Level.Debug);
+			log.debug("gphoto2 --set-config /main/imgsettings/imageformat=" + imageFormat.getValue());
 			rt.exec("gphoto2 --set-config /main/imgsettings/imageformat=" + imageFormat.getValue());
 		} catch (IOException e) {
-			log("Error --set-config\n" + e.toString(), Log.Level.Error);
+			log.error("log.debug(r --set-config\n" + e.toString());
 		}
 	}
 
@@ -317,7 +317,7 @@ public class Camera {
 	private void summary(Runtime rt) {
 		try {
 			// Send the gphoto2 command
-			log("gphoto2 --summary", Log.Level.Debug);
+			log.debug("gphoto2 --summary");
 			Process proc = rt.exec("gphoto2 --summary");
 			Thread.sleep(WAIT_FOR_EXEC);
 			BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
@@ -343,7 +343,7 @@ public class Camera {
 				}
 			}
 		} catch (Exception e) {
-			log("Error --summary\n" + e.toString(), Log.Level.Error);
+			log.error("Error --summary\n" + e.toString());
 		}
 	}
 
@@ -354,7 +354,7 @@ public class Camera {
 	private void captureImageAndDownload(Runtime rt, String subEpc) {
 		try {
 			// Send the gphoto2 command
-			log("gphoto2 --capture-image-and-download -F=" + shotsPerTrigger + " -I=1", Log.Level.Debug);
+			log.debug("gphoto2 --capture-image-and-download -F=" + shotsPerTrigger + " -I=1");
 			rt.exec("gphoto2 --capture-image-and-download -F=" + shotsPerTrigger + " -I=1");
 			// Now wait for the file(s) to download
         	for (Integer i = 0; i < Integer.parseInt(shotsPerTrigger); i++) {
@@ -368,7 +368,7 @@ public class Camera {
 			    }
 			    // Queue the filename for upload if it exists
 			    if (file.exists()) {
-					log("Received " + fileName, Log.Level.Debug);
+					log.debug("Received " + fileName);
 				    Long timeStamp = new Date().getTime();
 				    // Rename the file
 				    String newName = subEpc + "-" + timeStamp + ".jpg";
@@ -377,34 +377,23 @@ public class Camera {
 					pictureQueue.put(newName);
 					Thread.sleep(1000);
 			    } else {
-	    			log( "Timeout waiting for file download!", Log.Level.Warning );
+	    			log.warn( "Timeout waiting for file download!" );
 	    			// Cycle power on the camera
     				enablePower(false);
 					Thread.sleep(1000);
     				enablePower(true);
 					Thread.sleep(6000);
 					pictureQueue.put(TIMEOUT);
-	    			log( "Camera Ready", Log.Level.Information );
+	    			log.info( "Camera Ready" );
 	    			break; // break out of the for loop
 			    }				        		
         	}
-			log("gphoto2 --delete-all-files", Log.Level.Debug);
+			log.debug("gphoto2 --delete-all-files");
 			rt.exec("gphoto2 --delete-all-files");
 			Thread.sleep(1000);
 		} catch (Exception e) {
-			log("Error --capture-image-and-download\n" + e.toString(), Log.Level.Error);
+			log.error("Error --capture-image-and-download\n" + e.toString());
 		}
 	}
 
-	/** 
-	 * log<P>
-	 * This method is used for making log entries.
-	 */
-	private void log(String entry, Log.Level logLevel) {
-		if (logObject != null) {
-			logObject.makeEntry(entry, logLevel);
-		} else {
-			System.out.println(entry);
-		}
-	}
 }
