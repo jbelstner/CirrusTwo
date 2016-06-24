@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 - 2015, Encinitas Laboratories, Inc. 
+ * Copyright (c) 2013 - 2016, Encinitas Laboratories, Inc. 
  * All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -22,14 +22,14 @@
  */
 package com.encinitaslabs.rfid.comms;
 
-import org.apache.log4j.Logger;
-
 import com.encinitaslabs.rfid.cmd.MtiCmd;
 import gnu.io.*;
 import java.io.*;
 import java.util.TooManyListenersException;
 import java.util.concurrent.LinkedBlockingQueue;
 //import javax.comm.*;
+
+import org.apache.log4j.Logger;
 
 /**
  * SerialComms Object
@@ -41,16 +41,18 @@ import java.util.concurrent.LinkedBlockingQueue;
  */
 public class SerialComms implements SerialPortEventListener {
 
-	private static final Logger log = Logger.getLogger(SerialComms.class);
-	public static final String TAG = "SerialComms";
+	private final String configFile = "uart.properties";
+	private String portName = "/dev/ttyS0";
+	private Integer baudRate = 115200;
+	private Boolean debug = false;
     private static CommPortIdentifier portId;
 	private boolean isOpen = false;
-	private boolean DEBUG = false;
 	private OutputStream out = null;
 	private InputStream in = null;
 	private SerialPort serialPort = null;
 	private CommPort commPort = null;
 	private LinkedBlockingQueue<byte[]> serialRspQueue = null;
+	private static final Logger log = Logger.getLogger(SerialComms.class);
 
 	private boolean lookForNewPacket = true;
 	private int packetLength = 0;
@@ -59,17 +61,19 @@ public class SerialComms implements SerialPortEventListener {
 	private byte[] circularBuffer = new byte[circularBufferSize];
 	private int inIndex = 0;
 	private int outIndex = 0;
-	private String portName = "/dev/ttyS0";
-	private Integer baudRate = 115200;
-	
+
 	
 	/** 
 	 * SerialComms
 	 * 
 	 * Class Constructor
+	 * @param queue_ A LinkedBlockingQueue<byte> reference for sending
+	 * incoming messages back to the main application for processing.
+	 * @param logObject_ A Log object reference for logging activities.
 	 */
     public SerialComms( LinkedBlockingQueue<byte[]> serialRspQueue ) {
 		this.serialRspQueue = serialRspQueue;
+		parseConfigFile(configFile);
 	}
 	
 	/** 
@@ -77,43 +81,48 @@ public class SerialComms implements SerialPortEventListener {
 	 * This method opens the specified serial port (if available).
 	 * @param portName must be one of the available ports
 	 * @return True is the serial port was successfully opened
-     * @throws Exception
 	 */
-	public boolean connect( ) throws Exception {
+	public boolean connect() {
 		boolean status = false;
-		portId = CommPortIdentifier.getPortIdentifier( portName );
-		if ( portId.isCurrentlyOwned() ) {
-			System.out.println( "Error: Port is currently in use" );
-		} else {
-			int timeout = 2000;
-			commPort = portId.open( "SerialComms", timeout );
-
-			if ( commPort instanceof SerialPort ) {
-				serialPort = ( SerialPort )commPort;
-				serialPort.setSerialPortParams( baudRate.intValue(),
-												SerialPort.DATABITS_8,
-												SerialPort.STOPBITS_1,
-												SerialPort.PARITY_NONE );
-	 
-				in = serialPort.getInputStream();
-				out = serialPort.getOutputStream();
-
-//		        ( new Thread( new SerialReader( in ) ) ).start();
-
-				try {
-				    serialPort.addEventListener(this);
-				} catch (TooManyListenersException e) {
-					System.out.println(e.toString());
-				}
-				serialPort.notifyOnDataAvailable(true);
-
-				isOpen = true;
-				status = true;
-
+		
+		try {
+			portId = CommPortIdentifier.getPortIdentifier( portName );
+			if ( portId.isCurrentlyOwned() ) {
+				log.error( "Error: Port is currently in use" );
 			} else {
-				System.out.println( "Error: Invalid serial port name." );
+				int timeout = 2000;
+				commPort = portId.open( "SerialComms", timeout );
+
+				if ( commPort instanceof SerialPort ) {
+					serialPort = ( SerialPort )commPort;
+					serialPort.setSerialPortParams( baudRate.intValue(),
+													SerialPort.DATABITS_8,
+													SerialPort.STOPBITS_1,
+													SerialPort.PARITY_NONE );
+		 
+					in = serialPort.getInputStream();
+					out = serialPort.getOutputStream();
+
+//			        ( new Thread( new SerialReader( in ) ) ).start();
+
+					try {
+					    serialPort.addEventListener(this);
+					} catch (TooManyListenersException e) {
+						log.error(e.toString() );
+					}
+					serialPort.notifyOnDataAvailable(true);
+
+					isOpen = true;
+					status = true;
+
+				} else {
+					log.error( "Error: Invalid serial port name." );
+				}
 			}
+		} catch (Exception e) {
+			log.error("Unable to open " + portName + "\n" + e.toString());
 		}
+		
 		return status;
 	}
 
@@ -123,6 +132,26 @@ public class SerialComms implements SerialPortEventListener {
 	 */
 	public boolean isConnected() {
 		return isOpen;
+	}
+	
+	/** 
+	 * setDebug<P>
+	 * This method sets the serial debug flag.
+	 */
+	public void setDebug( Boolean debug_ ) {
+		if (debug_ != null) {
+			this.debug = debug_;
+		}
+	}
+	
+	/** 
+	 * setBaudRate<P>
+	 * This method sets the serial baud rate.
+	 */
+	public void setBaudRate( Integer baudRate_ ) {
+		if (baudRate_ != null) {
+			this.baudRate = baudRate_;
+		}
 	}
 	
 	/** 
@@ -136,8 +165,8 @@ public class SerialComms implements SerialPortEventListener {
 				out.close();
 				isOpen = false;
 				serialPort.close();
-			} catch (IOException e) {
-				System.out.println(e.toString());
+			} catch (Exception e) {
+				log.error("Error disconnecting from the Serial port\n" + e.toString());
 			}
 		}
 	}
@@ -250,9 +279,9 @@ public class SerialComms implements SerialPortEventListener {
 			try {
 				out.write(message, 0, length);
 				status = true;
-				if (DEBUG) {
+				if (debug) {
 					System.out.println( "serialWrite: " + Integer.toString(length) + " bytes " + MtiCmd.byteArrayToString(message, true) );
-//					System.out.println( "serialWrite: " + Integer.toString(length) );
+//					log( "serialWrite: " + Integer.toString(length) );
 				}
 			} catch( IOException e ) {
 				log.error( "Serial Port Write failed!\n" + e.toString() );
@@ -270,9 +299,9 @@ public class SerialComms implements SerialPortEventListener {
 	 */
 	public void serialRead( byte[] dataBuffer, int length ) {
 
-		if (DEBUG) {
+		if (debug) {
 			System.out.println( "serialRead(): " + Integer.toString(length) + " bytes " + MtiCmd.byteArrayToString(dataBuffer, length, true) );
-//			System.out.println( "serialRead(): " + Integer.toString(length) );
+//			log( "serialRead(): " + Integer.toString(length) );
 		}
 		
 		// Copy into the circular buffer for processing (guaranteed to have room)
@@ -397,4 +426,77 @@ public class SerialComms implements SerialPortEventListener {
 		packetLength = 0;
 	}
 	
+	/** 
+	 * parseConfigFile<P>
+	 * This method parses the uart.config file.
+	 */
+	private void parseConfigFile(String filename) {
+
+		try {
+			BufferedReader br = null;
+			String currentLine;
+			br = new BufferedReader(new FileReader(filename));
+
+			while ((currentLine = br.readLine()) != null) {
+				String st[] = currentLine.split("=");
+				if (currentLine.startsWith("#")) {
+					// Do nothing as this is a comment
+				} else if (currentLine.startsWith("COM_PORT") && (st.length == 2)) {
+					this.portName = st[1];
+				} else if (currentLine.startsWith("BAUD_RATE") && (st.length == 2)) {
+					this.baudRate = Integer.parseInt(st[1]);
+				} else if (currentLine.startsWith("SERIAL_DEBUG") && (st.length == 2)) {
+					debug = Boolean.parseBoolean(st[1]);
+				}
+			}
+			br.close();
+		} catch (FileNotFoundException e) {
+			log.warn("Config file not found " + filename );
+		} catch (IOException e) {
+			log.error("Unable to read config file " + filename );
+		}
+	}
+
+	/** 
+	 * updateConfigFile<P>
+	 * This method replaces the parameters in the config file
+	 * with the current state of the class private variables.
+	 * @return True is successful
+	 */
+	public Boolean updateConfigFile() {
+        // Read the config file content to the String "config"
+	    try {
+	        String currentLine = null, config = "";
+	    	BufferedReader br = new BufferedReader(new FileReader(configFile));
+
+	        while ((currentLine = br.readLine()) != null) {
+	        	// Check for the various parameters
+				if (currentLine.startsWith("#")) {
+					// Do nothing as this is a comment
+				} else {
+			    	log.debug("OLD: " + currentLine);
+					if (currentLine.startsWith("COM_PORT")) {
+						currentLine = "COM_PORT=" + portName;
+					} else if (currentLine.startsWith("BAUD_RATE")) {
+						currentLine = "BAUD_RATE=" + baudRate;
+					} else if (currentLine.startsWith("SERIAL_DEBUG")) {
+						currentLine = "SERIAL_DEBUG=" + debug;
+					}
+			    	log.debug("NEW: " + currentLine);
+				}
+	        	config += currentLine + '\n';
+	        }
+	        br.close();
+
+	        // Write the new config file content OVER the same config file
+	        FileOutputStream fileOut = new FileOutputStream(configFile);
+	        fileOut.write(config.getBytes());
+	        fileOut.close();
+			return true;
+			
+	    } catch (Exception e) {
+	    	log.warn("Unable to update  " + configFile);
+	        return false;
+	    }
+	}
 }

@@ -47,6 +47,7 @@ import com.encinitaslabs.rfid.cmd.Llcs;
 import com.encinitaslabs.rfid.cmd.MtiCmd;
 import com.encinitaslabs.rfid.comms.SerialComms;
 import com.encinitaslabs.rfid.utils.Crc16;
+import com.encinitaslabs.rfid.utils.EmailUtil;
 
 /**
  * CirrusII Object
@@ -59,7 +60,7 @@ import com.encinitaslabs.rfid.utils.Crc16;
  */
 public class CirrusII {
 	
-	private static final String appVersionString = "C2P-0.9.22";
+	private static final String appVersionString = "C2P-0.9.24";
 	private static final String configFile = "main.properties";
 	private static CirrusII cirrusII;
 
@@ -82,27 +83,28 @@ public class CirrusII {
 	
 	// RFID parameters
 	private InventoryProfile profile = null;
-	private ArrayList<AntennaPort> antennaPorts = null;
+	private ArrayList<AntennaPort> antennaPorts = new ArrayList<AntennaPort>();;
 	private Llcs llcs = null;
 	private byte testModeCommandSelect = 0;
 	private boolean testModeResponsePending = false;
 	private int numPhysicalPorts = 2;
 	// Serial Port parameters
-	private SerialComms serialComms = null;
 	private String moduleType = "RU861";
-	private LinkedBlockingQueue<byte[]> serialCmdQueue = null;
-	private LinkedBlockingQueue<byte[]> serialRspQueue = null;
-	private LinkedBlockingQueue<RfidState> nextRfidState = null;
+	private LinkedBlockingQueue<byte[]> serialCmdQueue = new LinkedBlockingQueue<byte[]>();
+	private LinkedBlockingQueue<byte[]> serialRspQueue = new LinkedBlockingQueue<byte[]>();
+	private LinkedBlockingQueue<RfidState> nextRfidState = new LinkedBlockingQueue<RfidState>();
+	private SerialComms serialComms = new SerialComms(serialRspQueue);;
 	// Tag Data parameters
-	private ConcurrentHashMap<String, TagData> tagEvents = null;
-	private ConcurrentHashMap<String, TagData> tagDatabase = null;
+	private ConcurrentHashMap<String, TagData> tagEvents = new ConcurrentHashMap<String, TagData>();
+	private ConcurrentHashMap<String, TagData> tagDatabase = new ConcurrentHashMap<String, TagData>();
 	private boolean tagPresent = false;
 	private boolean autoRepeat = false;
 	// Fotaflo parameters
-	private final int MIN_LENGTH_FILENAME = 20;
-	private LinkedBlockingQueue<String> pictureQueue = null;
 	private Fotaflo fotaflo = null;
-	private Camera camera = null;
+	private final int MIN_LENGTH_FILENAME = 20;
+	private final int FAILURE_THRESHOLD = 3;
+	private LinkedBlockingQueue<String> pictureQueue = new LinkedBlockingQueue<String>();
+	private Camera camera = new Camera(pictureQueue);
 	private String username = null;
 	private String password = null;
 	private String photoUrl = null;
@@ -115,6 +117,10 @@ public class CirrusII {
 	private int triggersPerEvent = 3;
 	private int triggerInterval_sec = 5;
 	private int eventTimeout_sec = 900;
+	private int downloadFailures = 0;
+	private int uploadFailures = 0;
+	private static final String CAMERA_ERROR = "Unable to download images from camera";
+	private static final String UPLOAD_ERROR = "Unable to upload images to the server";
 	// Statistics
 	private int numberOfTriggers = 0;
 	private int numberOfUploads = 0;
@@ -128,6 +134,8 @@ public class CirrusII {
 	private boolean useCLI = true;
 	private int ticTimerCount = 0;
 	private BuiltInSelfTest bist = null;
+    private EmailUtil mail = new EmailUtil();
+    private ArrayList<String> alertEmailList = new ArrayList<>();
 //	private boolean motionFlag = false;
 	private boolean errorFlag = false;
 	// Timeout and retry parameters
@@ -137,6 +145,8 @@ public class CirrusII {
 	private Timer uploadRetryTimer = null;
 	private Timer tagEventAgeTimer = null;
 	private Timer moduleResetTimer = null;
+    private Timer emailHoldoffTimer = null;
+    private boolean emailHoldoff = false;
 	private int bistTimeInterval_ms = 15000;
 	private int powerOnTimeInterval_ms = 7000;
 	private int uploadRetryInterval_ms = 600000;
@@ -190,7 +200,6 @@ public class CirrusII {
 		}
 		
 		// Parse the config file (if there is one)
-		antennaPorts = new ArrayList<AntennaPort>();
 		try {
 			parseConfigFile(configFile);
 		} catch (IOException e1) {
@@ -201,16 +210,7 @@ public class CirrusII {
 		log.info( "Cirrus-II Photo, version " + appVersionString);
 		bist = new BuiltInSelfTest();
 		
-		// Initialize the various queues
-		tagEvents = new ConcurrentHashMap<String, TagData>();
-		tagDatabase = new ConcurrentHashMap<String, TagData>();
-		pictureQueue = new LinkedBlockingQueue<String>();
-		serialCmdQueue = new LinkedBlockingQueue<byte[]>();
-		serialRspQueue = new LinkedBlockingQueue<byte[]>();
-		nextRfidState = new LinkedBlockingQueue<RfidState>();
-		
 		// Fotaflo specific objects
-		camera = new Camera(pictureQueue);
 		fotaflo = new Fotaflo(deviceId, location);
 		fotaflo.setCredentials(username, password);
 		fotaflo.setUploadUrl(photoUrl);
@@ -219,8 +219,6 @@ public class CirrusII {
 		camera.setShotsPerTrigger(shotsPerTrigger);
 
 		// SERIAL PORT INITIALIZATION
-		serialComms = new SerialComms(serialRspQueue);
-		// This could throw an exception
 		try {
 			serialComms.connect();
 		} catch (Exception e) {
@@ -552,6 +550,60 @@ public class CirrusII {
 		}
 	}
 
+    /**
+     * startEmailHoldoffTimer<P>
+     */
+    private void startEmailHoldoffTimer() {
+        if (emailHoldoffTimer != null) {
+            emailHoldoffTimer.cancel();
+        }
+        emailHoldoffTimer = new Timer();
+        emailHoldoffTimer.schedule(new EmailHoldoffTimerTask(), 600000);
+        emailHoldoff = true;
+    }
+
+    /**
+     * EmailHoldoffTimerTask<P>
+     */
+    class EmailHoldoffTimerTask extends TimerTask {
+
+        @Override
+        public void run() {
+            emailHoldoff = false;
+        }
+    }
+
+    private void sendEmails(final String _subject, final String _body) {
+
+        if (emailHoldoff) {
+            return;
+        }
+        
+        if ((_subject == null) || (_body == null)) {
+        	log.warn("Email subject or body is null");
+            return;
+        }
+        
+        log.warn(_subject + ": " + _body);
+        
+        if (alertEmailList.isEmpty()) {
+        	log.warn("Email List is empty");
+            return;
+        }
+        
+        startEmailHoldoffTimer();
+
+        // Send the email(s) in the background
+        Thread emailSender = new Thread() {
+            public void run() {
+                for (String to : alertEmailList) {
+                    mail.sendTLS(to, _subject, _body, null);
+                }
+            }
+        };
+        emailSender.start();
+    }
+
 	/** 
 	 * requestReaderInformation<P>
 	 * This method requests Reader ID and FW version from the RFID module.
@@ -851,17 +903,32 @@ public class CirrusII {
 	private void associateFileWithTagsAndUpload( String fileToUpload ) {
 		// Check for a camera error
 		if (fileToUpload.equalsIgnoreCase(camera.TIMEOUT)) {
-			// flush the tagEvents to allow another photo to be taken 
+			// flush the tagEvents to allow another photo to be taken
 			tagEvents.clear();
+			if (++downloadFailures > FAILURE_THRESHOLD) {
+				downloadFailures = 0;
+				sendEmails(location+"--"+deviceId, CAMERA_ERROR);
+			}
 		} else {
+			downloadFailures = 0;
 			// Get the one tag that triggered this photo
 			String epcPlusTimestamp[] = fileToUpload.split("-");
 			try {
 				if (fotaflo.postImageToServer(fileToUpload, epcPlusTimestamp[0])) {
 					numberOfUploads++;
+					uploadFailures = 0;
 				}
+				else if (++uploadFailures > FAILURE_THRESHOLD) {
+					uploadFailures = 0;
+					sendEmails(location+"--"+deviceId, UPLOAD_ERROR);
+				}
+
 			} catch (Exception e) {
 				log.error("Unable to upload image/tags\n" + e.toString());
+				if (++uploadFailures > FAILURE_THRESHOLD) {
+					uploadFailures = 0;
+					sendEmails(location+"--"+deviceId, UPLOAD_ERROR);
+				}
 			}
 		}
 	}
@@ -1502,10 +1569,8 @@ public class CirrusII {
 					this.triggerInterval_sec = Integer.parseInt(st[1]);
 				} else if (currentLine.startsWith("EVENT_TIMEOUT_SEC") && (st.length == 2)) {
 					this.eventTimeout_sec = Integer.parseInt(st[1]);
-				} else if (currentLine.startsWith("LATITUDE") && (st.length == 2)) {
-					this.latitude = Double.parseDouble(st[1]);
-				} else if (currentLine.startsWith("LONGITUDE") && (st.length == 2)) {
-					this.longitude = Double.parseDouble(st[1]);
+                } else if (currentLine.startsWith("ALERT_EMAIL") && (st.length == 2)) {
+                    alertEmailList.add(st[1]);
 				}
 			}
 		} catch (IOException e) {
