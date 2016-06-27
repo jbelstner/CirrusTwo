@@ -259,6 +259,31 @@ public class BuiltInSelfTest {
 		return ((new Date().getTime()) - startEpoch_ms);
 	}
 
+	public boolean forceTimeSync() {
+		boolean success = true;
+		
+		try {
+			Runtime.getRuntime().exec("/usr/sbin/ntpdate pool.ntp.org | logger -t sync-time 2>&1");
+		} catch (Exception e) {
+			log.warn("Unable to synchronize time " + e.toString());
+			success = false;
+		}
+		
+		return success;
+	}
+
+	public String getHostname( ) {
+		Process proc;
+		try {
+			proc = Runtime.getRuntime().exec("cat /etc/hostname");
+			BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+			return stdInput.readLine();
+//			return InetAddress.getLocalHost().getHostName();
+		} catch (Exception e) {
+			log.error( "Unable to get hostname! " + e.toString() );
+			return "";
+		}
+	}
 	/** 
 	 * getTotalCpuUsedInPercent<P>
 	 * @return A String.

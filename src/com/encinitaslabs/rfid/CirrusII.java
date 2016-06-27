@@ -28,7 +28,9 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -60,8 +62,9 @@ import com.encinitaslabs.rfid.utils.EmailUtil;
  */
 public class CirrusII {
 	
-	private static final String appVersionString = "C2P-0.9.24";
+	private static final String appVersionString = "C3P-1.0.1";
 	private static final String configFile = "main.properties";
+	private static final long releaseDate = 1466924400000L;
 	private static CirrusII cirrusII;
 
 	public enum RfidState {
@@ -119,8 +122,13 @@ public class CirrusII {
 	private int eventTimeout_sec = 900;
 	private int downloadFailures = 0;
 	private int uploadFailures = 0;
+	private int moduleUnresponsive = 0;
+	private int moduleError = 0;
+	private int timeFailures = 0;
+	private static final String TIME_FAILURE = "Unable to set the correct time of day";
 	private static final String CAMERA_ERROR = "Unable to download images from camera";
 	private static final String UPLOAD_ERROR = "Unable to upload images to the server";
+	private static final String DEVICE_ALERT = "CirrusIII Device Alert";
 	// Statistics
 	private int numberOfTriggers = 0;
 	private int numberOfUploads = 0;
@@ -380,6 +388,18 @@ public class CirrusII {
 				errorFlag = false;
 			}
 
+			// Check for correct time and force an update if way off
+			long timestamp = new Date().getTime();
+			if (timestamp < releaseDate) {
+				bist.forceTimeSync();
+				if (++timeFailures > FAILURE_THRESHOLD) {
+					timeFailures = 0;
+					sendEmails(DEVICE_ALERT, createDeviceAlert(TIME_FAILURE));
+				}
+			} else {
+				timeFailures = 0;
+			}
+
 			// See if we need to Ping the RFID Module
 			if ((rfidState == RfidState.Idle) && bist.shouldPingRfModule()) {
 				if (autoRepeat) {
@@ -393,6 +413,10 @@ public class CirrusII {
 			// Handle the case where the HP-SiP goes off in the weeds
 			if ((rfidState != RfidState.WaitingForReset) && ("Bad".equals(bist.getRfModuleCommHealth()))) {
 				resetDevice();
+				if (++moduleUnresponsive > FAILURE_THRESHOLD) {
+					moduleUnresponsive = 0;
+					sendEmails(DEVICE_ALERT, createDeviceAlert("RFID Module unresponsive"));
+				}
 			}
 
 			// Update some runtime statistics
@@ -701,6 +725,7 @@ public class CirrusII {
 		String responseType = MtiCmd.getCommandType(dataBuffer[MtiCmd.TYPE_INDEX]);
 		CmdHead response = MtiCmd.getCmdHead(dataBuffer);
 		bist.rfModuleCommActivity();
+		moduleUnresponsive = 0;
 
 		// Log what we received
 		if (responseType.contains("Response")) {
@@ -781,6 +806,12 @@ public class CirrusII {
 				bist.setMtiStatusCode(status);
 				log.error("MTI MAC Firmware Error Code: 0x" + Integer.toHexString(status));
 				sendClearError();
+				if (++moduleError > FAILURE_THRESHOLD) {
+					moduleError = 0;
+					sendEmails(DEVICE_ALERT, createDeviceAlert("MTI MAC Firmware Error Code: 0x" + Integer.toHexString(status)));
+				}
+			} else {
+				moduleError = 0;				
 			}
 			// Return to idle state
     		setRfidState(RfidState.Idle);
@@ -907,10 +938,10 @@ public class CirrusII {
 			tagEvents.clear();
 			if (++downloadFailures > FAILURE_THRESHOLD) {
 				downloadFailures = 0;
-				sendEmails(location+"--"+deviceId, CAMERA_ERROR);
+				sendEmails(DEVICE_ALERT, createDeviceAlert(CAMERA_ERROR));
 			}
 		} else {
-			downloadFailures = 0;
+			downloadFailures = 0;			
 			// Get the one tag that triggered this photo
 			String epcPlusTimestamp[] = fileToUpload.split("-");
 			try {
@@ -920,14 +951,14 @@ public class CirrusII {
 				}
 				else if (++uploadFailures > FAILURE_THRESHOLD) {
 					uploadFailures = 0;
-					sendEmails(location+"--"+deviceId, UPLOAD_ERROR);
+					sendEmails(DEVICE_ALERT, createDeviceAlert(UPLOAD_ERROR));
 				}
 
 			} catch (Exception e) {
 				log.error("Unable to upload image/tags\n" + e.toString());
 				if (++uploadFailures > FAILURE_THRESHOLD) {
 					uploadFailures = 0;
-					sendEmails(location+"--"+deviceId, UPLOAD_ERROR);
+					sendEmails(DEVICE_ALERT, createDeviceAlert(UPLOAD_ERROR));
 				}
 			}
 		}
@@ -1265,6 +1296,36 @@ public class CirrusII {
 		System.out.println( "Latitude/Longitude = " + latitude + " / " + longitude);
 		System.out.println( "\n\n" );
 		
+	}
+	
+	private String createDeviceAlert(String _subject) {
+
+        String format = "yyyy-MM-dd-HHmm";
+        SimpleDateFormat sdf = new SimpleDateFormat(format);
+        String alertDTS = sdf.format(new Date());
+
+		StringBuilder sb = new StringBuilder();		
+		sb.append( "Alert Type         = " + _subject + "\n" );
+		sb.append( "Alert Time         = " + alertDTS + "\n" );
+		sb.append( "Camera Location    = " + location + "\n" );
+		sb.append( "Camera Name        = " + deviceId + "\n" );
+		sb.append( "Auth Username      = " + username + "\n" );
+		sb.append( "Auth Password      = " + password + "\n" );
+		sb.append( "Photo Server URL   = " + photoUrl + "\n" );
+		sb.append( "Image Format       = " + imageFormat + "\n" );
+		sb.append( "Shots Per Trigger  = " + shotsPerTrigger + "\n" );
+		sb.append( "Trigger Interval   = " + triggerInterval_sec + "\n" );
+		sb.append( "Triggers Per Event = " + triggersPerEvent + "\n" );
+		sb.append( "Event Timeout      = " + eventTimeout_sec + "\n" );
+		sb.append( "Camera Make        = " + camera.getManufacturer() + "\n" );
+		sb.append( "Camera Model       = " + camera.getModel() + "\n" );
+		sb.append( "Camera Version     = " + camera.getVersion() + "\n" );
+		sb.append( "Camera Serial#     = " + camera.getSerialNumber() + "\n" );
+		sb.append( "CirrusIII Hostname = " + bist.getHostname() + "\n" );
+		
+		log.error(sb.toString());
+		
+		return sb.toString();
 	}
 	
 	/** 
