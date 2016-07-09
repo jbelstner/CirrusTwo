@@ -258,13 +258,13 @@ public class Fotaflo {
      * @param filename The filename of the image
      * @param tags The serialized string of tags associated with that image
      */
-	public Boolean postImageToServer( String filename, String tags ) {
+	public Boolean postImageToServer( String filename, String tags, int timeout ) {
 		
 		PostImage postImage = new PostImage(username, password, photoUrl, deviceId, location, filename, tags);
 		Future<?> future = executor.submit(postImage);
 		
 		try {
-			future.get(60, TimeUnit.SECONDS); 
+			future.get(timeout, TimeUnit.SECONDS); 
 			return true;
 		} catch (TimeoutException ex) {
 			// handle the timeout

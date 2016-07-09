@@ -1,0 +1,13 @@
+#!/bin/sh
+#
+# start_modem
+#
+# Starts the 3G/4G cellular modem.
+#
+ifdown eth0                                                                     
+/usr/sbin/write_pca9539a 0 240                                                  
+sleep 5                                                                         
+/usr/sbin/write_pca9539a 0 248                                                  
+sleep 25                                                                        
+wvdial vzw4g
+#wvdial att4g

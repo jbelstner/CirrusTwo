@@ -62,7 +62,7 @@ import com.encinitaslabs.rfid.utils.EmailUtil;
  */
 public class CirrusII {
 	
-	private static final String appVersionString = "C3P-1.0.1";
+	private static final String appVersionString = "C3P-1.0.2";
 	private static final String configFile = "main.properties";
 	private static final long releaseDate = 1466924400000L;
 	private static CirrusII cirrusII;
@@ -125,6 +125,7 @@ public class CirrusII {
 	private int moduleUnresponsive = 0;
 	private int moduleError = 0;
 	private int timeFailures = 0;
+	private int maxUploadTime_sec = 60;
 	private static final String TIME_FAILURE = "Unable to set the correct time of day";
 	private static final String CAMERA_ERROR = "Unable to download images from camera";
 	private static final String UPLOAD_ERROR = "Unable to upload images to the server";
@@ -945,7 +946,7 @@ public class CirrusII {
 			// Get the one tag that triggered this photo
 			String epcPlusTimestamp[] = fileToUpload.split("-");
 			try {
-				if (fotaflo.postImageToServer(fileToUpload, epcPlusTimestamp[0])) {
+				if (fotaflo.postImageToServer(fileToUpload, epcPlusTimestamp[0], maxUploadTime_sec)) {
 					numberOfUploads++;
 					uploadFailures = 0;
 				}
@@ -1630,6 +1631,8 @@ public class CirrusII {
 					this.triggerInterval_sec = Integer.parseInt(st[1]);
 				} else if (currentLine.startsWith("EVENT_TIMEOUT_SEC") && (st.length == 2)) {
 					this.eventTimeout_sec = Integer.parseInt(st[1]);
+				} else if (currentLine.startsWith("MAX_UPLOAD_TIME_SEC") && (st.length == 2)) {
+					this.maxUploadTime_sec = Integer.parseInt(st[1]);
                 } else if (currentLine.startsWith("ALERT_EMAIL") && (st.length == 2)) {
                     alertEmailList.add(st[1]);
 				}
