@@ -23,7 +23,10 @@
 package com.encinitaslabs.rfid;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Date;
 
 import org.apache.log4j.Logger;
@@ -377,6 +380,7 @@ public class BuiltInSelfTest {
 				pingRfModule = true;
 			} else {
 				// Otherwise we have a fault
+				log.warn("RF Module health = Bad");
 				rfModuleCommHealth = RfModuleCommHealth.Bad;
 			}
 		}
@@ -429,6 +433,33 @@ public class BuiltInSelfTest {
 		rfModulePacketCount++;
 		pingRfModule = false;
 		rfModuleCommHealth = RfModuleCommHealth.Good;
+	}
+
+	/** 
+	 * isInternetConnected<P>
+	 * 
+	 */
+	public boolean isInternetConnected() {
+		boolean connected = false;
+
+		int timeout = 2000;
+		InetAddress[] addresses;
+		try {
+			addresses = InetAddress.getAllByName("google.com");
+			for (InetAddress address : addresses) {
+				if (address.isReachable(timeout)) {
+					log.debug("Google.com detected");
+					connected = true;
+					break;
+				}
+			}
+		} catch (UnknownHostException e) {
+			log.warn("Cannot resolve Google.com");
+		} catch (IOException e) {
+			log.error("Network error occurred");
+		}
+
+		return connected;
 	}
 
 	/** 

@@ -151,7 +151,7 @@ public class LedControl {
 	 */
 	private void closeControl() throws IOException {
 		Runtime rt = Runtime.getRuntime();
-		rt.exec("./led.sh 1");
+		rt.exec("./led.sh 6");
 //		rt.exec("./unexport_led_ctrl.sh");
 	}
 	

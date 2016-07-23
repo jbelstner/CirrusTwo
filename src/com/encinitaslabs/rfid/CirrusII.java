@@ -62,7 +62,7 @@ import com.encinitaslabs.rfid.utils.EmailUtil;
  */
 public class CirrusII {
 	
-	private static final String appVersionString = "C3P-1.0.2";
+	private static final String appVersionString = "C3P-1.0.4";
 	private static final String configFile = "main.properties";
 	private static final long releaseDate = 1466924400000L;
 	private static CirrusII cirrusII;
@@ -74,6 +74,7 @@ public class CirrusII {
 		WaitingForEnd,
 		WaitingForInventory,
 		WaitingForAccess,
+		WaitingForReboot,
 		WaitingForReset
 	}
 	
@@ -122,6 +123,8 @@ public class CirrusII {
 	private int eventTimeout_sec = 900;
 	private int downloadFailures = 0;
 	private int uploadFailures = 0;
+	private int internetFailures = 0;
+	private int maxInternetFailures = 40;
 	private int moduleUnresponsive = 0;
 	private int moduleError = 0;
 	private int timeFailures = 0;
@@ -154,13 +157,15 @@ public class CirrusII {
 	private Timer uploadRetryTimer = null;
 	private Timer tagEventAgeTimer = null;
 	private Timer moduleResetTimer = null;
+	private Timer moduleRebootTimer = null;
     private Timer emailHoldoffTimer = null;
     private boolean emailHoldoff = false;
 	private int bistTimeInterval_ms = 15000;
 	private int powerOnTimeInterval_ms = 7000;
 	private int uploadRetryInterval_ms = 600000;
 	private int tagDataTimeInterval_ms = 1000;
-	private int moduleResetWait_ms = 10000;
+	private int moduleResetWait_ms = 9000;
+	private int moduleRebootWait_ms = 3000;
 
 	private double latitude = 0.0;
 	private double longitude = 0.0;
@@ -194,20 +199,23 @@ public class CirrusII {
 	}
 	
 	/** 
-	 * SmartAntenna
-	 * 
 	 * Class Constructor
 	 */
 	public CirrusII( boolean useCLI_ ) {
 		// Check if we are using command line input
 		useCLI = useCLI_;
 		
+	    FileWriter fstream;
 		try {
-			Runtime.getRuntime().exec("/etc/init.d/ntp restart");
+			fstream = new FileWriter("/root/version.txt", false);
+		    BufferedWriter out = new BufferedWriter(fstream);
+		    out.write(appVersionString);
+		    out.write("\n");
+		    out.close();
 		} catch (IOException e) {
-			System.out.println("Unable to restart ntp\n" + e.toString());
+			System.out.println("Unable to write software version file\n" + e.toString());
 		}
-		
+
 		// Parse the config file (if there is one)
 		try {
 			parseConfigFile(configFile);
@@ -218,6 +226,16 @@ public class CirrusII {
 		// Create the log object that we need to have
 		log.info( "Cirrus-II Photo, version " + appVersionString);
 		bist = new BuiltInSelfTest();
+		
+		// Check for Internet connection
+		if (!bist.isInternetConnected()) {
+			log.error("No Internet connection detected!");
+			try {
+				Runtime.getRuntime().exec("reboot");
+			} catch (IOException e) {
+				log.error("Cannot Reboot Unit!");
+			}
+		}
 		
 		// Fotaflo specific objects
 		fotaflo = new Fotaflo(deviceId, location);
@@ -401,6 +419,20 @@ public class CirrusII {
 				timeFailures = 0;
 			}
 
+			// Make sure we still have Internet connectivity
+			if (!bist.isInternetConnected()) {
+				if (++internetFailures > maxInternetFailures) {
+					log.error("No Internet connection for 10 minutes!");
+					try {
+						Runtime.getRuntime().exec("reboot");
+					} catch (IOException e) {
+						log.error("Cannot Reboot Unit!");
+					}
+				}
+			} else {
+				internetFailures = 0;
+			}
+			
 			// See if we need to Ping the RFID Module
 			if ((rfidState == RfidState.Idle) && bist.shouldPingRfModule()) {
 				if (autoRepeat) {
@@ -412,7 +444,7 @@ public class CirrusII {
 			}
 
 			// Handle the case where the HP-SiP goes off in the weeds
-			if ((rfidState != RfidState.WaitingForReset) && ("Bad".equals(bist.getRfModuleCommHealth()))) {
+			if ((rfidState != RfidState.WaitingForReset) && (rfidState != RfidState.WaitingForReboot) && ("Bad".equals(bist.getRfModuleCommHealth()))) {
 				resetDevice();
 				if (++moduleUnresponsive > FAILURE_THRESHOLD) {
 					moduleUnresponsive = 0;
@@ -575,6 +607,47 @@ public class CirrusII {
 		}
 	}
 
+	/** 
+	 * startModuleRebootTimer<P>
+	 * This method sets the delay time after a module reboot to the
+	 * specified value. If the timer is already running, it first stops it
+	 * and then starts it up again with the new interval.
+	 * @param timeInterval_ms The recurring time interval in milliseconds
+	 */
+	private void startModuleRebootTimer( int timeInterval_ms ) {
+		if (moduleRebootTimer != null) {
+			moduleRebootTimer.cancel();
+		}
+		moduleRebootTimer = new Timer();
+		moduleRebootTimer.schedule(new ModuleRebootTimerTask(), timeInterval_ms);
+	}	
+	
+	/** 
+	 * ModuleRebootTimerTask<P>
+	 * This timer handles HP-SiP post reboot activities.
+	 */
+	class ModuleRebootTimerTask extends TimerTask {
+
+		@Override
+		public void run() {
+			log.debug("ModuleRebootTimerTask.run()");
+			
+			try {
+				startModuleResetTimer(moduleResetWait_ms);
+				
+				try {
+					// Apply power to the HP-SiP
+					Runtime.getRuntime().exec("/usr/sbin/hpsip_5V0 1");
+					setRfidState(RfidState.WaitingForReset);
+				} catch (IOException e) {
+			    	log.error("Unable to apply power to the HP-SiP");
+				}
+			} catch (Exception e) {
+				log.error("Exception in ModuleRebootTimerTask" + e.toString());
+			}
+		}
+	}
+	
     /**
      * startEmailHoldoffTimer<P>
      */
@@ -1343,7 +1416,7 @@ public class CirrusII {
 		} else {
 			switch (rfidState) {
 			case Idle:
-				led.set(LedControl.Color.Green, LedControl.BlinkState.Constant);
+				led.set(LedControl.Color.Lime, LedControl.BlinkState.Constant);
 				break;
 			case WaitingForResponse:
 			case WaitingForBegin:
@@ -1352,12 +1425,14 @@ public class CirrusII {
 				led.set(LedControl.Color.Blue, LedControl.BlinkState.Constant);
 				break;
 			case WaitingForEnd:
-				if (!tagPresent) {
-					led.set(LedControl.Color.Blue, LedControl.BlinkState.Constant);
-				} else {
+				if (tagPresent) {
 					led.set(LedControl.Color.Blue, LedControl.BlinkState.FastBlink);
+					tagPresent = false;
+				} else {
+					led.set(LedControl.Color.Blue, LedControl.BlinkState.Constant);
 				}
 				break;
+			case WaitingForReboot:
 			case WaitingForReset:
 				led.set(LedControl.Color.Red, LedControl.BlinkState.Constant);
 				break;
@@ -1569,6 +1644,29 @@ public class CirrusII {
 			}
 		}
 		return true;
+	}
+	
+	/** 
+	 * rebootRfidModule<P>
+	 * This method removes power briefly from the RFID module.
+	 * This method only applies to the HP-SiP module.
+	 * @return True is successful
+	 */
+	private Boolean rebootRfidModule() {
+		Boolean success = false;
+
+		bist.rfModuleCommActivity();
+		
+		setRfidState(RfidState.WaitingForReboot);
+		startModuleRebootTimer(moduleRebootWait_ms);
+
+		try {
+			Runtime.getRuntime().exec("/usr/sbin/hpsip_5V0 0");
+			success = true;
+		} catch (IOException e) {
+	    	log.error("Unable to remove power from HP-SiP");
+		}
+		return success;
 	}
 	
 	/** 
@@ -2727,9 +2825,7 @@ public class CirrusII {
 				serialComms = new SerialComms(serialRspQueue);
 				serialComms.connect();
 			}
-			sendSoftReset();
-		} catch (InterruptedException e) {
-			log.error("Unable to send command to RFID module " + e.toString());
+			rebootRfidModule();
 		} catch (Exception e) {
 			log.error("Unable to re-open Comm Port " + e.toString());
 		}

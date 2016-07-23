@@ -1,1 +1,35 @@
-#!/bin/bash## rc.local## Put your custom commands here that should be executed once# the system init finished. By default this file does nothing.# Check for a first time install/usr/sbin/checkunique# Perform Power-On Self Test/usr/sbin/gpio_setup/usr/sbin/post# Force the Camera USB port to Full Speedecho 1 >/sys/bus/usb/devices/usb1/../companion# Connect via SocketModem/usr/sbin/start_ppp_modem &sleep 38route del defaultroute add default ppp0# Perform an initial time sync/usr/sbin/ntpdate pool.ntp.org# Start the MeshCentral Agent/usr/local/mesh/mesh_linux start# Start the RFID application/etc/init.d/rfid startexit 0
+#!/bin/bash
+#
+# rc.local
+#
+# Put your custom commands here that should be executed once
+# the system init finished. By default this file does nothing.
+
+# Check for a first time install
+/usr/sbin/checkunique
+
+# Configure GPIO and run selftest
+/usr/sbin/gpio_setup
+/usr/sbin/post
+
+# Force the USB ports to Full Speed
+echo 1 >/sys/bus/usb/devices/usb1/../companion
+#echo 2 >/sys/bus/usb/devices/usb1/../companion
+
+# Connect via SocketModem
+/usr/sbin/start_ppp_modem &
+
+# Wait for the modem to connect
+sleep 38
+route del default
+route add default ppp0
+/usr/sbin/ntpdate pool.ntp.org | logger -t sync-time 2>&1
+
+# Start the MeshCentral Agent
+/usr/local/mesh/mesh_linux start
+
+# Start RFID application
+/etc/init.d/rfid start
+
+exit 0
+
